@@ -39,7 +39,13 @@
 
   async function load(userId, isAdmin) {
     assertReady();
-    const ownProfile = unwrap(await client.from("campus_profiles").select("*").eq("id", userId).single());
+    const profileResult = await client.from("campus_profiles").select("*").eq("id", userId).maybeSingle();
+    if (profileResult.error) throw profileResult.error;
+    const ownProfile = profileResult.data;
+    if (!ownProfile) {
+      throw new Error("Your sign-in exists, but its CampusHub profile is missing. Run the profile repair SQL in README.md, then sign out and back in.");
+    }
+    if (!ownProfile.active) throw new Error("Your CampusHub account has been deactivated. Contact an administrator.");
     const [announcements, schedules, events, scheduleHistory, acknowledgments, profiles, studentCount] = await Promise.all([
       fetchRows(tables.announcements),
       fetchRows(tables.schedules),
@@ -49,7 +55,6 @@
       isAdmin || ownProfile.role === "admin" ? fetchRows("campus_profiles") : Promise.resolve([]),
       unwrap(await client.rpc("active_campus_student_count"))
     ]);
-    if (!ownProfile || !ownProfile.active) throw new Error("Your CampusHub account is unavailable or deactivated.");
     const acknowledgmentIds = new Map();
     acknowledgments.forEach(item => {
       if (!acknowledgmentIds.has(item.announcement_id)) acknowledgmentIds.set(item.announcement_id, []);

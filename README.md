@@ -4,11 +4,11 @@
 
 CampusHub is a centralized website where students can check class schedules, examinations, deadlines, and official announcements. Professors, class officers, and administrators can manage the information their roles are authorized to maintain. Records are shared through Supabase, so updates are not confined to the browser that created them.
 
-CampusHub is intended to complement communication channels such as Facebook and Microsoft Teams—not replace them. It gives students one dependable place to check what is happening in their class.
+CampusHub is intended to complement communication channels such as Facebook and Microsoft Teams—not replace them. It gives students one dependable place to check everything and be updated.
 
 ## Problem being addressed
 
-Class schedules, examination dates, deadlines, and professor announcements are often distributed across different platforms, including Facebook, Microsoft Teams, email, and face-to-face announcements. Students may miss important updates, be confused by schedule changes, or receive information later than their classmates.
+Class schedules, examination dates, deadlines, and professor announcements are often distributed across different platforms, including Facebook page, Microsoft Teams, email, and face-to-face announcements. Students may miss important updates, be confused by schedule changes, or receive information later than their classmates.
 
 ## Proposed solution
 
@@ -119,6 +119,23 @@ Then sign out and back in. In **User management**, administrators can:
 7. Enable GitHub Pages for the repository under **Settings → Pages**. Visit the resulting HTTPS URL to use the connected application. Opening `index.html` using a `file://` URL is not supported for authentication.
 
 The Supabase anon/public key is expected to be visible in the static frontend. RLS and database functions are responsible for protecting records and privileged operations. Never publish the service-role key or disable RLS.
+
+### Repair a missing profile
+
+Every Auth user needs a matching row in `public.campus_profiles`. The signup trigger creates one for new users. If you created an Auth user before running the schema, or see an error saying the CampusHub profile is missing, run this in the Supabase SQL Editor:
+
+```sql
+insert into public.campus_profiles (id, full_name, email)
+select
+  id,
+  coalesce(nullif(trim(raw_user_meta_data ->> 'full_name'), ''), split_part(email, '@', 1)),
+  lower(email)
+from auth.users
+where id = 'REPLACE-WITH-YOUR-AUTH-USER-UUID'
+on conflict (id) do nothing;
+```
+
+Use the UUID shown for your account under **Authentication → Users**, then sign out and sign back in. The app reports this setup issue directly instead of showing an ambiguous database response.
 
 ## AI use disclosure
 
