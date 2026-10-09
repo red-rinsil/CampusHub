@@ -1,0 +1,1256 @@
+(() => {
+  "use strict";
+
+  const STORAGE_KEY = "campushub-state-v1";
+  const roles = {
+    student: { label: "Student", name: "Maya Chen" },
+    professor: { label: "Professor", name: "Dr. Alex Morgan" },
+    officer: { label: "Class Officer", name: "Jordan Lee" },
+    admin: { label: "Administrator", name: "Campus Administrator" }
+  };
+  const navItems = [
+    { id: "dashboard", label: "Dashboard", icon: "grid" },
+    { id: "announcements", label: "Announcements", icon: "bell" },
+    { id: "timetable", label: "Class schedule", icon: "calendar" },
+    { id: "exams", label: "Exam timetable", icon: "exam" },
+    { id: "calendar", label: "Academic calendar", icon: "clock" },
+    { id: "management", label: "User management", icon: "users", adminOnly: true },
+    { id: "settings", label: "Account settings", icon: "settings" }
+  ];
+  const icons = {
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>',
+    bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/>',
+    exam: '<path d="M8 3h8l4 4v14H4V3h4Z"/><path d="M14 3v5h5M8 13h8M8 17h6"/>',
+    calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    users: '<path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.6a8 8 0 0 1-1.5.9l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.5-.9l-1.7.6-1.4-2.4L7.7 15a8 8 0 0 1 0-1.8l-1.4-1.1 1.4-2.4 1.7.6a8 8 0 0 1 1.5-.9l.3-1.8H14l.3 1.8a8 8 0 0 1 1.5.9l1.7-.6 1.4 2.4-1.4 1.1a8 8 0 0 1-.1 1.8Z"/>'
+  };
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const datePlus = (days, hour = 9) => {
+    const date = new Date(today);
+    date.setDate(date.getDate() + days);
+    date.setHours(hour, 0, 0, 0);
+    return date.toISOString();
+  };
+  const initialState = () => ({
+    activeRole: "student",
+    activeTab: "dashboard",
+    announcementFilter: "All",
+    currentUserId: null,
+    studentCount: 0,
+    roleKeys: [],
+    users: [],
+    announcements: [
+      { id: "ann-1", title: "Midterm examination rooms confirmed", content: "The midterm for Data Structures will take place in Engineering Hall, rooms 204 and 205. Please arrive 15 minutes early and bring your student ID.", subject: "Data Structures", category: "Exam Notice", author: "Dr. Alex Morgan", authorRole: "professor", createdAt: datePlus(-1, 10), urgent: true, archived: false, acknowledgments: [] },
+      { id: "ann-2", title: "Project proposal due this Friday", content: "Submit your group proposal through the course portal by 5:00 PM on Friday. Include each member's name and a short description of your approach.", subject: "Software Engineering", category: "Deadline", author: "Jordan Lee", authorRole: "officer", createdAt: datePlus(-2, 14), urgent: false, archived: false, acknowledgments: [] },
+      { id: "ann-3", title: "Guest lecture in the main auditorium", content: "A reminder that our guest speaker joins us tomorrow. Regular class will meet in the main auditorium instead of Room 312.", subject: "Computer Science", category: "General", author: "Dr. Alex Morgan", authorRole: "professor", createdAt: datePlus(-3, 9), urgent: false, archived: false, acknowledgments: [] },
+      { id: "ann-4", title: "Friday lab session cancelled", content: "The computer lab will be unavailable this Friday. A make-up session time will be shared as soon as it is confirmed.", subject: "Programming Lab", category: "Class Cancellation", author: "Jordan Lee", authorRole: "officer", createdAt: datePlus(-4, 11), urgent: true, archived: false, acknowledgments: [] }
+    ],
+    schedules: [
+      { id: "sch-1", day: "Monday", start: "09:00", end: "10:30", subject: "Data Structures", instructor: "Dr. Alex Morgan", room: "Engineering 204" },
+      { id: "sch-2", day: "Monday", start: "13:00", end: "14:30", subject: "Software Engineering", instructor: "Prof. Elena Ruiz", room: "Science 312" },
+      { id: "sch-3", day: "Tuesday", start: "10:00", end: "11:30", subject: "Database Systems", instructor: "Dr. Kim Park", room: "Technology 108" },
+      { id: "sch-4", day: "Wednesday", start: "09:00", end: "10:30", subject: "Data Structures", instructor: "Dr. Alex Morgan", room: "Engineering 204" },
+      { id: "sch-5", day: "Wednesday", start: "14:00", end: "15:30", subject: "Programming Lab", instructor: "Prof. Elena Ruiz", room: "Computer Lab 2" },
+      { id: "sch-6", day: "Thursday", start: "10:00", end: "11:30", subject: "Database Systems", instructor: "Dr. Kim Park", room: "Technology 108" },
+      { id: "sch-7", day: "Friday", start: "09:00", end: "10:30", subject: "Software Engineering", instructor: "Prof. Elena Ruiz", room: "Science 312" }
+    ],
+    scheduleHistory: [
+      { id: "hist-1", text: "Database Systems moved to Technology 108", actor: "Campus Administrator", at: datePlus(-2, 15) },
+      { id: "hist-2", text: "Programming Lab room updated to Computer Lab 2", actor: "Jordan Lee", at: datePlus(-6, 12) }
+    ],
+    events: [
+      { id: "evt-1", title: "Data Structures midterm", type: "Examination", subject: "Data Structures", date: datePlus(2, 10), location: "Engineering Hall 204", details: "Bring your student ID and arrive 15 minutes early." },
+      { id: "evt-2", title: "Project proposal submission", type: "Project Deadline", subject: "Software Engineering", date: datePlus(4, 17), location: "Course portal", details: "Submit one proposal per group." },
+      { id: "evt-3", title: "Database Systems quiz", type: "Quiz", subject: "Database Systems", date: datePlus(6, 9), location: "Technology 108", details: "Covers normalization and relational algebra." },
+      { id: "evt-4", title: "Professor Morgan consultation hours", type: "Consultation", subject: "Data Structures", date: datePlus(8, 13), location: "Faculty Office 4B", details: "Drop in or book a 15-minute slot." },
+      { id: "evt-5", title: "Programming Lab make-up session", type: "Special Class", subject: "Programming Lab", date: datePlus(10, 14), location: "Computer Lab 2", details: "Make-up session for the cancelled Friday lab." }
+    ]
+  });
+
+  let state;
+  let toastTimer;
+  let syncQueue = Promise.resolve();
+  let dataReady = false;
+  let realtimeChannel = null;
+  let bootstrappingUserId = null;
+  const bootstrapWaiters = new Map();
+  const content = document.getElementById("app-content");
+  const nav = document.getElementById("primary-nav");
+  const landingPage = document.getElementById("landing-page");
+  const authenticatedApp = document.getElementById("authenticated-app");
+  const authModal = document.getElementById("auth-modal");
+  const accessModal = document.getElementById("access-modal");
+  const importModal = document.getElementById("import-modal");
+  const authMessage = document.getElementById("auth-message");
+  const accessMessage = document.getElementById("access-message");
+  let pendingImport = null;
+
+  function saveState() {
+    if (!dataReady || !currentUser()) return;
+    try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ activeTab: state.activeTab, announcementFilter: state.announcementFilter }));
+    } catch (error) {
+      console.error("CampusHub could not save browser preferences.", error);
+    }
+    syncQueue = syncQueue.then(() => window.CampusHubStore.save(state)).catch(error => {
+      console.error("CampusHub could not save shared data.", error);
+      showToast(error.message || "Your changes could not be saved to the shared database.", "error");
+    });
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, char => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    })[char]);
+  }
+
+  function canManageAnnouncements() {
+    return ["professor", "officer", "admin"].includes(state.activeRole);
+  }
+
+  function canManageSchedules() {
+    return ["professor", "officer", "admin"].includes(state.activeRole);
+  }
+
+  function canManageEvents() {
+    return ["professor", "admin"].includes(state.activeRole);
+  }
+
+  function activeUserId() {
+    return state.currentUserId;
+  }
+
+  function currentUser() {
+    return state.users.find(user => user.id === state.currentUserId && user.active) || null;
+  }
+
+  function updateRoleFromSession() {
+    const user = currentUser();
+    if (user) state.activeRole = user.role;
+    return user;
+  }
+
+  function formatDate(value, options = { month: "short", day: "numeric", year: "numeric" }) {
+    return new Intl.DateTimeFormat("en", options).format(new Date(value));
+  }
+
+  function formatTime(value) {
+    return new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(new Date(value));
+  }
+
+  function relativeDate(value) {
+    const days = Math.round((new Date(value).setHours(0, 0, 0, 0) - today.getTime()) / 86400000);
+    if (days === 0) return "Today";
+    if (days === 1) return "Tomorrow";
+    if (days > 1 && days < 7) return `In ${days} days`;
+    if (days === -1) return "Yesterday";
+    return formatDate(value, { month: "short", day: "numeric" });
+  }
+
+  function categoryClass(category) {
+    return ({
+      "General": "badge-general", "Exam Notice": "badge-exam", "Class Cancellation": "badge-cancellation",
+      "Deadline": "badge-deadline", "Quiz": "badge-quiz", "Project Deadline": "badge-project",
+      "Consultation": "badge-consultation", "Special Class": "badge-class", "Examination": "badge-examination"
+    })[category] || "badge-general";
+  }
+
+  function badge(category) {
+    return `<span class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${categoryClass(category)}">${escapeHtml(category)}</span>`;
+  }
+
+  function button(label, action, extra = "", classes = "btn-secondary") {
+    return `<button type="button" data-action="${action}" ${extra} class="inline-flex items-center justify-center rounded-lg border px-3 py-2 text-xs font-semibold transition hover:brightness-95 ${classes}">${label}</button>`;
+  }
+
+  function navIcon(name) {
+    return `<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name]}</svg>`;
+  }
+
+  function renderNav() {
+    nav.innerHTML = navItems.filter(item => !item.adminOnly || state.activeRole === "admin").map(item => {
+      return `<button type="button" class="nav-link ${state.activeTab === item.id ? "is-active" : ""}" data-tab="${item.id}">
+        ${navIcon(item.icon)}<span>${item.label}</span>
+      </button>`;
+    }).join("");
+  }
+
+  function pageTitle() {
+    const item = navItems.find(navItem => navItem.id === state.activeTab);
+    return item ? item.label : "Dashboard";
+  }
+
+  function render() {
+    const account = updateRoleFromSession();
+    if (!account) {
+      landingPage.hidden = false;
+      authenticatedApp.hidden = true;
+      return;
+    }
+    landingPage.hidden = true;
+    authenticatedApp.hidden = false;
+    if (state.activeTab === "management" && state.activeRole !== "admin") state.activeTab = "dashboard";
+    document.getElementById("account-name").textContent = account.name;
+    document.getElementById("account-role").textContent = `${roles[state.activeRole].label} · ${account.email}`;
+    document.getElementById("page-heading").textContent = pageTitle();
+    renderNav();
+    const pages = {
+      dashboard: renderDashboard,
+      announcements: renderAnnouncements,
+      timetable: renderTimetable,
+      exams: renderExamTimetable,
+      calendar: renderCalendar,
+      management: renderManagement,
+      settings: renderSettings
+    };
+    content.innerHTML = (pages[state.activeTab] || renderDashboard)();
+  }
+
+  function pageIntro(eyebrow, title, description, action = "") {
+    return `<div class="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div>
+      <p class="text-xs font-bold uppercase tracking-[.16em] text-indigo-600">${eyebrow}</p>
+      <h2 class="mt-1 text-2xl font-bold tracking-tight text-slate-900">${title}</h2>
+      <p class="mt-1 max-w-2xl text-sm leading-6 text-slate-500">${description}</p>
+      </div>${action}</div>`;
+  }
+
+  function bulkScheduleActions() {
+    if (!["professor", "admin"].includes(state.activeRole)) return "";
+    return `<div class="flex flex-wrap gap-2">
+      ${button("Import CSV / TXT", "open-import", "", "btn-primary")}
+      ${button("Export schedules & exams", "export-schedules")}
+    </div>`;
+  }
+
+  function canImportSchedules() {
+    return ["professor", "admin"].includes(state.activeRole);
+  }
+
+  function csvCell(value) {
+    const text = String(value ?? "");
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+
+  function downloadText(filename, text, mimeType = "text/csv;charset=utf-8") {
+    const url = URL.createObjectURL(new Blob([text], { type: mimeType }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportScheduleData() {
+    if (!requireRole(["professor", "admin"])) return;
+    const header = ["Type", "Subject", "Instructor", "Classroom", "DayOfWeek", "Time", "EndTime", "Date", "Title", "Details", "ImportedBy", "ImportedAt"];
+    const rows = state.schedules.map(item => [
+      "Class", item.subject, item.instructor, item.room, item.day, item.start, item.end, item.date || "", "", "",
+      item.importedByName || item.importedBy || "", item.importedAt || ""
+    ]);
+    state.events.filter(item => ["Examination", "Quiz"].includes(item.type)).forEach(item => {
+      const date = new Date(item.date);
+      const localDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+      rows.push([item.type, item.subject, item.instructor || "", item.location, "", time, "", localDate, item.title, item.details || "", item.importedByName || item.importedBy || "", item.importedAt || ""]);
+    });
+    downloadText("campushub-schedules-and-exams.csv", [header, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n"));
+    showToast(`Exported ${state.schedules.length} classes and ${rows.length - state.schedules.length} exams/quizzes.`);
+  }
+
+  function openImportDialog() {
+    if (!requireRole(["professor", "admin"])) return;
+    pendingImport = null;
+    document.getElementById("import-file").value = "";
+    document.getElementById("import-preview").replaceChildren();
+    document.getElementById("import-preview").classList.add("hidden");
+    document.getElementById("import-message").classList.add("hidden");
+    const commitButton = document.getElementById("commit-import");
+    commitButton.disabled = true;
+    commitButton.textContent = "Validate a file to continue";
+    importModal.hidden = false;
+    document.getElementById("import-file").focus();
+  }
+
+  function renderImportPreview(result) {
+    const preview = document.getElementById("import-preview");
+    const commitButton = document.getElementById("commit-import");
+    preview.replaceChildren();
+    preview.classList.remove("hidden");
+    const summary = document.createElement("p");
+    summary.className = "mb-2 font-semibold text-slate-800";
+    const classes = result.records.filter(record => record.kind === "class").length;
+    const exams = result.records.length - classes;
+    summary.textContent = `${result.records.length} valid row(s): ${classes} class schedule(s), ${exams} exam/quiz record(s).${result.errors.length ? ` ${result.errors.length} row error(s).` : ""}`;
+    preview.append(summary);
+    if (result.errors.length) {
+      const list = document.createElement("ul");
+      list.className = "space-y-1 text-rose-700";
+      result.errors.forEach(message => {
+        const item = document.createElement("li");
+        item.textContent = message;
+        list.append(item);
+      });
+      preview.append(list);
+    } else {
+      const success = document.createElement("p");
+      success.className = "text-emerald-700";
+      success.textContent = "All rows passed validation.";
+      preview.append(success);
+    }
+    commitButton.disabled = result.records.length === 0;
+    commitButton.textContent = result.records.length
+      ? `Import ${result.records.length} valid row(s)`
+      : "No valid rows to import";
+  }
+
+  function applyBulkImport(result) {
+    if (!requireRole(["professor", "admin"])) return;
+    const account = currentUser();
+    if (!account) return;
+    const importedAt = new Date().toISOString();
+    let classCount = 0;
+    let examCount = 0;
+
+    result.records.forEach(record => {
+      if (record.kind === "class") {
+        state.schedules.push({
+          id: generateId("sch"),
+          day: record.day,
+          start: record.start,
+          end: record.end,
+          subject: record.subject,
+          instructor: record.instructor,
+          room: record.room,
+          ...(record.date ? { date: record.date } : {}),
+          importedBy: account.id,
+          importedByName: account.name,
+          importedAt
+        });
+        classCount += 1;
+      } else {
+        const localDateTime = new Date(`${record.date}T${record.time}:00`);
+        state.events.push({
+          id: generateId("evt"),
+          title: record.title,
+          type: record.type,
+          subject: record.subject,
+          date: localDateTime.toISOString(),
+          location: record.room,
+          details: record.details,
+          instructor: record.instructor,
+          importedBy: account.id,
+          importedByName: account.name,
+          importedAt
+        });
+        examCount += 1;
+      }
+    });
+
+    if (classCount) recordScheduleChange(`${classCount} class schedule(s) imported from file`);
+    saveState();
+    pendingImport = null;
+    importModal.hidden = true;
+    render();
+    const message = `Successfully imported ${classCount} class schedule(s) and ${examCount} exam/quiz record(s).`;
+    showToast(result.errors.length ? `${message} ${result.errors.length} invalid row(s) were skipped.` : message);
+  }
+
+  document.getElementById("download-import-template").addEventListener("click", event => {
+    event.preventDefault();
+    downloadText("campushub-schedule-exam-template.csv", window.CampusHubImport.template());
+  });
+
+  document.querySelector("[data-close-import]").addEventListener("click", () => {
+    importModal.hidden = true;
+    pendingImport = null;
+  });
+
+  importModal.addEventListener("click", event => {
+    if (event.target === importModal) {
+      importModal.hidden = true;
+      pendingImport = null;
+    }
+  });
+
+  document.getElementById("import-file").addEventListener("change", async event => {
+    if (!canImportSchedules()) return;
+    const file = event.target.files?.[0];
+    pendingImport = null;
+    const preview = document.getElementById("import-preview");
+    const commitButton = document.getElementById("commit-import");
+    const message = document.getElementById("import-message");
+    message.classList.add("hidden");
+    commitButton.disabled = true;
+    commitButton.textContent = "Validating file…";
+    if (!file) {
+      preview.classList.add("hidden");
+      commitButton.textContent = "Validate a file to continue";
+      return;
+    }
+    if (!/\.(csv|txt)$/i.test(file.name)) {
+      renderImportPreview({ records: [], errors: ["Choose a .csv or .txt file."] });
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      renderImportPreview({ records: [], errors: ["File exceeds the 2 MB import limit."] });
+      return;
+    }
+    try {
+      const result = window.CampusHubImport.parse(await file.text());
+      if (result.records.length > 10000) {
+        renderImportPreview({ records: [], errors: ["Files may contain no more than 10,000 valid rows."] });
+        return;
+      }
+      pendingImport = result;
+      renderImportPreview(result);
+    } catch (error) {
+      renderImportPreview({ records: [], errors: [error.message || "The file could not be parsed."] });
+    }
+  });
+
+  document.getElementById("import-form").addEventListener("submit", event => {
+    event.preventDefault();
+    if (!pendingImport?.records.length) return;
+    applyBulkImport(pendingImport);
+  });
+
+  function renderDashboard() {
+    const nextEvents = state.events.filter(event => new Date(event.date) >= new Date()).sort((a, b) => new Date(a.date) - new Date(b.date));
+    const urgent = state.announcements.filter(item => item.urgent && !item.archived).slice(0, 2);
+    const studentCount = state.studentCount;
+    const unread = state.announcements.filter(item => !item.archived && !item.acknowledgments.includes(activeUserId())).length;
+    return `${pageIntro("Your campus, at a glance", `Welcome back, ${escapeHtml((currentUser()?.name || roles[state.activeRole].name).split(" ")[0])}`, "Your classes, key dates, and the updates that matter — organized in one place.", bulkScheduleActions())}
+      <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        ${metricCard("Upcoming academic dates", nextEvents.length, "Across exams, quizzes & deadlines", "text-indigo-600", "calendar")}
+        ${metricCard("Active announcements", state.announcements.filter(item => !item.archived).length, "Updates from your campus", "text-violet-600", "bell")}
+        ${metricCard("Unread updates", unread, "Not yet acknowledged by you", "text-amber-600", "clock")}
+        ${metricCard("Students in this cohort", studentCount, "Acknowledgment audience", "text-emerald-600", "users")}
+      </div>
+      <section class="mt-5 rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50 to-violet-50 p-5 sm:p-6">
+        <p class="text-xs font-bold uppercase tracking-[.14em] text-indigo-700">A more connected campus</p>
+        <h3 class="mt-1 text-lg font-bold text-slate-900">No more searching across scattered channels.</h3>
+        <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Class changes buried in chats and exam dates spread across calendars make it easy to miss what matters. CampusHub brings schedules, deadlines, and official announcements together — with read acknowledgments so staff can see when important notices reach students.</p>
+      </section>
+      <div class="mt-6 grid gap-6 xl:grid-cols-[1.35fr_.85fr]">
+        <section class="surface-card p-5 sm:p-6">
+          <div class="flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-indigo-600">Coming up</p><h3 class="mt-1 text-lg font-bold">Exams & deadlines</h3></div>${button("View calendar", "navigate", 'data-target="calendar"', "btn-secondary")}</div>
+          <div class="mt-5 divide-y divide-slate-100">${nextEvents.length ? nextEvents.slice(0, 4).map(event => eventRow(event)).join("") : emptyState("You're all caught up", "No upcoming academic dates are scheduled.")}</div>
+        </section>
+        <section class="surface-card p-5 sm:p-6">
+          <div class="flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-rose-600">Needs your attention</p><h3 class="mt-1 text-lg font-bold">Urgent notices</h3></div>${button("All announcements", "navigate", 'data-target="announcements"', "btn-secondary")}</div>
+          <div class="mt-5 space-y-3">${urgent.length ? urgent.map(item => `<article class="rounded-xl border border-rose-100 bg-rose-50/60 p-4">
+            <div class="flex items-center justify-between gap-2">${badge(item.category)}<span class="text-xs text-slate-500">${relativeDate(item.createdAt)}</span></div>
+            <h4 class="mt-3 text-sm font-bold text-slate-900">${escapeHtml(item.title)}</h4>
+            <p class="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">${escapeHtml(item.content)}</p>
+          </article>`).join("") : emptyState("No urgent notices", "Important updates will appear here.")}</div>
+        </section>
+      </div>
+      <section class="surface-card mt-6 p-5 sm:p-6"><div class="flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-emerald-600">This week</p><h3 class="mt-1 text-lg font-bold">Your class schedule</h3></div>${button("Open timetable", "navigate", 'data-target="timetable"', "btn-secondary")}</div>
+        <div class="mt-4 flex flex-wrap gap-2">${state.schedules.filter(item => item.day === new Intl.DateTimeFormat("en", { weekday: "long" }).format(new Date())).sort((a, b) => a.start.localeCompare(b.start)).map(item => `<div class="rounded-xl bg-slate-50 px-3 py-2.5"><p class="text-xs font-semibold text-indigo-700">${escapeHtml(item.start)} – ${escapeHtml(item.end)}</p><p class="mt-1 text-sm font-semibold">${escapeHtml(item.subject)}</p><p class="text-xs text-slate-500">${escapeHtml(item.room)}</p></div>`).join("") || '<p class="text-sm text-slate-500">No classes scheduled for today. Check the full timetable for the week.</p>'}</div>
+      </section>`;
+  }
+
+  function metricCard(title, value, subtitle, color, iconName) {
+    return `<article class="surface-card p-4 sm:p-5"><div class="flex items-start justify-between"><p class="text-sm font-medium text-slate-500">${title}</p><span class="${color}">${navIcon(iconName)}</span></div><p class="mt-4 text-3xl font-bold tracking-tight">${value}</p><p class="mt-1 text-xs text-slate-500">${subtitle}</p></article>`;
+  }
+
+  function eventRow(event) {
+    return `<div class="flex items-center gap-3 py-3.5"><div class="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl bg-indigo-50 text-indigo-700"><span class="text-[10px] font-bold uppercase">${escapeHtml(new Intl.DateTimeFormat("en", { month: "short" }).format(new Date(event.date)))}</span><span class="text-lg font-bold leading-5">${new Date(event.date).getDate()}</span></div><div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-2">${badge(event.type)}<span class="text-xs text-slate-500">${escapeHtml(event.subject)}</span></div><p class="mt-1 truncate text-sm font-semibold">${escapeHtml(event.title)}</p><p class="text-xs text-slate-500">${formatTime(event.date)} · ${escapeHtml(event.location)}</p></div><span class="hidden text-xs font-medium text-slate-500 sm:inline">${relativeDate(event.date)}</span></div>`;
+  }
+
+  function emptyState(title, description) {
+    return `<div class="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center"><p class="text-sm font-semibold text-slate-700">${title}</p><p class="mt-1 text-xs text-slate-500">${description}</p></div>`;
+  }
+
+  function renderAnnouncements() {
+    const categories = ["All", "General", "Exam Notice", "Class Cancellation", "Deadline"];
+    const items = state.announcements.filter(item => !item.archived && (state.announcementFilter === "All" || item.category === state.announcementFilter)).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const canCreate = canManageAnnouncements();
+    return `${pageIntro("Stay in the loop", "Campus announcements", "Official updates, class changes, and important deadlines from your professors and class officers.", canCreate ? button("＋ Create announcement", "toggle-announcement-form", "", "btn-primary") : "")}
+      <section class="surface-card p-4 sm:p-5">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 class="font-bold">Latest updates</h3><p class="mt-1 text-xs text-slate-500">${items.length} ${items.length === 1 ? "announcement" : "announcements"}</p></div>
+          <label class="flex items-center gap-2 text-xs font-medium text-slate-500">Filter <select id="announcement-filter" class="form-control w-auto py-2">${categories.map(category => `<option ${state.announcementFilter === category ? "selected" : ""}>${category}</option>`).join("")}</select></label>
+        </div>
+        ${state.showAnnouncementForm ? announcementForm(state.announcements.find(item => item.id === state.editingAnnouncement)) : ""}
+        <div class="mt-4 space-y-4">${items.length ? items.map(announcementCard).join("") : emptyState("No announcements here", "Try another filter or check back later.")}</div>
+        ${state.activeRole === "admin" ? `<details class="mt-6 border-t border-slate-100 pt-4"><summary class="cursor-pointer text-sm font-semibold text-slate-600">Archived announcements (${state.announcements.filter(item => item.archived).length})</summary><div class="mt-3 space-y-3">${state.announcements.filter(item => item.archived).map(item => `<div class="flex items-center justify-between rounded-xl bg-slate-50 p-3"><span class="text-sm font-medium">${escapeHtml(item.title)}</span>${button("Restore", "restore-announcement", `data-id="${item.id}"`)}</div>`).join("") || '<p class="text-xs text-slate-500">No archived announcements.</p>'}</div></details>` : ""}
+      </section>`;
+  }
+
+  function announcementForm(item = null) {
+    const editing = Boolean(item);
+    return `<form id="announcement-form" class="mt-5 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
+      <div class="mb-4 flex items-center justify-between"><h4 class="font-bold">${editing ? "Edit announcement" : "New announcement"}</h4>${button("Cancel", "cancel-announcement-form")}</div>
+      <input type="hidden" name="id" value="${editing ? escapeHtml(item.id) : ""}">
+      <div class="grid gap-3 sm:grid-cols-2">
+        ${field("Title", "title", item?.title, "text", true)}
+        ${field("Subject / course", "subject", item?.subject, "text", true)}
+        <label class="block text-xs font-semibold text-slate-600">Category<select name="category" class="form-control mt-1.5" required>${["General", "Exam Notice", "Class Cancellation", "Deadline"].map(value => `<option ${item?.category === value ? "selected" : ""}>${value}</option>`).join("")}</select></label>
+        <label class="flex items-center gap-2 self-end pb-3 text-sm font-medium text-slate-700"><input type="checkbox" name="urgent" class="h-4 w-4 rounded border-slate-300 text-indigo-600" ${item?.urgent ? "checked" : ""}> Mark as urgent</label>
+        <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required>${editing ? escapeHtml(item.content) : ""}</textarea></label>
+      </div>
+      <div class="mt-3 flex justify-end"><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700">${editing ? "Save changes" : "Publish announcement"}</button></div>
+    </form>`;
+  }
+
+  function announcementCard(item) {
+    const acknowledged = item.acknowledgments.includes(activeUserId());
+    const canEdit = canManageAnnouncements() && item.authorRole === state.activeRole || state.activeRole === "admin";
+    const totalStudents = state.studentCount;
+    return `<article class="rounded-xl border ${item.urgent ? "border-rose-200" : "border-slate-200"} p-4 sm:p-5">
+      <div class="flex flex-wrap items-center gap-2">${badge(item.category)}${item.urgent ? '<span class="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700">Urgent</span>' : ""}<span class="ml-auto text-xs text-slate-500">${relativeDate(item.createdAt)} · ${escapeHtml(formatTime(item.createdAt))}</span></div>
+      <h3 class="mt-3 text-lg font-bold tracking-tight">${escapeHtml(item.title)}</h3><p class="mt-1 text-xs font-medium text-slate-500">${escapeHtml(item.subject)} <span class="px-1">·</span> Posted by ${escapeHtml(item.author)}</p>
+      <p class="mt-3 whitespace-pre-line text-sm leading-6 text-slate-600">${escapeHtml(item.content)}</p>
+      <div class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
+        <span class="text-xs font-medium text-slate-500">${item.acknowledgments.length}/${totalStudents} students acknowledged</span>
+        <div class="flex flex-wrap gap-2">
+          ${state.activeRole === "student" ? button(acknowledged ? "✓ Acknowledged" : "Mark as read", "acknowledge", `data-id="${item.id}" ${acknowledged ? "disabled" : ""}`, acknowledged ? "btn-done" : "btn-primary") : ""}
+          ${canEdit ? `${button("Edit", "edit-announcement", `data-id="${item.id}"`)}${button("Archive", "archive-announcement", `data-id="${item.id}"`)}${button("Delete", "delete-announcement", `data-id="${item.id}"`, "btn-danger")}` : ""}
+        </div>
+      </div>
+    </article>`;
+  }
+
+  function renderTimetable() {
+    const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const canEdit = canManageSchedules();
+    const times = [...new Set(state.schedules.map(item => item.start))].sort();
+    const actions = `<div class="flex flex-wrap gap-2">${canEdit ? button("＋ Add class", "toggle-schedule-form", "", "btn-primary") : ""}${bulkScheduleActions()}</div>`;
+    return `${pageIntro("Plan your week", "Class schedule", "A clear view of your weekly classes, instructors, classrooms, and any recent changes.", actions)}
+      ${state.showScheduleForm ? scheduleForm(state.schedules.find(item => item.id === state.editingSchedule)) : ""}
+      <section class="surface-card overflow-hidden"><div class="overflow-x-auto"><table class="w-full min-w-[720px] border-collapse text-left"><thead><tr class="bg-slate-50"><th class="w-32 border-b border-slate-200 px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500">Day</th>${times.map(time => `<th class="border-b border-slate-200 px-4 py-3 text-xs font-bold text-slate-500">${escapeHtml(time)}</th>`).join("")}</tr></thead><tbody>${days.map(day => `<tr class="border-b border-slate-100 last:border-0"><th class="px-4 py-3 text-sm font-bold text-slate-700">${day}</th>${times.map(time => {
+        const matches = state.schedules.filter(item => item.day === day && item.start === time);
+        return `<td class="min-w-44 px-2 py-2 align-top">${matches.map(item => `<div class="rounded-lg border border-indigo-100 bg-indigo-50/70 p-3"><p class="text-xs font-bold text-indigo-800">${escapeHtml(item.subject)}</p><p class="mt-1 text-[11px] text-slate-600">${escapeHtml(item.start)}–${escapeHtml(item.end)}</p><p class="mt-2 text-[11px] text-slate-600">${escapeHtml(item.instructor)}</p><p class="text-[11px] text-slate-500">${escapeHtml(item.room)}</p>${canEdit ? `<div class="mt-2 flex gap-1">${button("Edit", "edit-schedule", `data-id="${item.id}"`)}${button("Delete", "delete-schedule", `data-id="${item.id}"`, "btn-danger")}</div>` : ""}</div>`).join("")}</td>`;
+      }).join("")}</tr>`).join("")}</tbody></table></div></section>
+      <section class="surface-card mt-6 p-5 sm:p-6"><div class="flex items-center justify-between"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-slate-500">Audit trail</p><h3 class="mt-1 text-lg font-bold">Schedule change history</h3></div><span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">${state.scheduleHistory.length} updates</span></div>
+        <div class="mt-4 divide-y divide-slate-100">${state.scheduleHistory.length ? state.scheduleHistory.slice(0, 8).map(item => `<div class="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between"><p class="text-sm font-medium text-slate-700">${escapeHtml(item.text)}</p><p class="text-xs text-slate-500">${escapeHtml(item.actor)} · ${formatDate(item.at, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p></div>`).join("") : emptyState("No changes yet", "Schedule updates will be recorded here.")}</div>
+      </section>`;
+  }
+
+  function renderExamTimetable() {
+    const exams = state.events.filter(event => ["Examination", "Quiz"].includes(event.type)).sort((a, b) => new Date(a.date) - new Date(b.date));
+    const canEdit = canManageEvents();
+    const actions = `<div class="flex flex-wrap gap-2">${canEdit ? button("＋ Add exam", "toggle-exam-form", "", "btn-primary") : ""}${bulkScheduleActions()}</div>`;
+    return `${pageIntro("Assessment planning", "Exam timetable", "Check the date, start time, subject, and room for each exam or quiz. Unlike the weekly class schedule, every assessment shows its full calendar date.", actions)}
+      ${state.showExamForm ? eventForm(state.events.find(item => item.id === state.editingExam), true) : ""}
+      <section class="surface-card overflow-hidden">
+        <div class="border-b border-slate-100 p-4 sm:px-5"><h3 class="font-bold">Exams & quizzes</h3><p class="mt-1 text-xs text-slate-500">${exams.length} scheduled assessments · sorted by date</p></div>
+        ${exams.length ? `<div class="divide-y divide-slate-100">${exams.map(exam => {
+          const date = new Date(exam.date);
+          return `<article class="grid gap-4 p-4 sm:grid-cols-[9rem_1fr_auto] sm:items-center sm:px-5">
+            <div class="rounded-xl bg-indigo-50 px-3 py-2.5 text-center sm:text-left"><p class="text-xs font-bold uppercase tracking-wide text-indigo-700">${escapeHtml(new Intl.DateTimeFormat("en", { weekday: "short" }).format(date))}</p><p class="mt-0.5 text-sm font-bold text-slate-900">${escapeHtml(formatDate(exam.date, { month: "short", day: "numeric", year: "numeric" }))}</p><p class="mt-0.5 text-xs font-semibold text-indigo-700">${escapeHtml(formatTime(exam.date))}</p></div>
+            <div class="min-w-0"><div class="flex flex-wrap items-center gap-2">${badge(exam.type)}<span class="text-xs text-slate-500">${escapeHtml(exam.subject)}</span></div><h4 class="mt-1.5 text-base font-bold">${escapeHtml(exam.title)}</h4><p class="mt-1 text-sm text-slate-500">${escapeHtml(exam.location)}</p>${exam.details ? `<p class="mt-1 text-xs leading-5 text-slate-500">${escapeHtml(exam.details)}</p>` : ""}</div>
+            ${canEdit ? `<div class="flex gap-2 sm:justify-end">${button("Edit", "edit-exam", `data-id="${exam.id}"`)}${button("Remove", "delete-exam", `data-id="${exam.id}"`, "btn-danger")}</div>` : ""}
+          </article>`;
+        }).join("")}</div>` : `<div class="p-5">${emptyState("No exams scheduled", canEdit ? "Add an exam or quiz to publish a dated entry here." : "Exam and quiz dates will appear here when they are published.")}</div>`}
+      </section>`;
+  }
+
+  function scheduleForm(item = null) {
+    return `<form id="schedule-form" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">${item ? "Edit class" : "Add a class"}</h3>${button("Cancel", "cancel-schedule-form")}</div>
+      <input type="hidden" name="id" value="${item ? escapeHtml(item.id) : ""}"><div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" required value="${item ? escapeHtml(item.subject) : ""}"></label>
+      <label class="block text-xs font-semibold text-slate-600">Instructor<input class="form-control mt-1.5" name="instructor" required value="${item ? escapeHtml(item.instructor) : ""}"></label>
+      <label class="block text-xs font-semibold text-slate-600">Classroom<input class="form-control mt-1.5" name="room" required value="${item ? escapeHtml(item.room) : ""}"></label>
+      <label class="block text-xs font-semibold text-slate-600">Day<select name="day" class="form-control mt-1.5">${["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map(day => `<option ${item?.day === day ? "selected" : ""}>${day}</option>`).join("")}</select></label>
+      <label class="block text-xs font-semibold text-slate-600">Start time<input class="form-control mt-1.5" type="time" name="start" required value="${item ? escapeHtml(item.start) : "09:00"}"></label>
+      <label class="block text-xs font-semibold text-slate-600">End time<input class="form-control mt-1.5" type="time" name="end" required value="${item ? escapeHtml(item.end) : "10:30"}"></label></div>
+      <div class="mt-4 flex justify-end"><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white">${item ? "Save class" : "Add class"}</button></div></form>`;
+  }
+
+  function renderCalendar() {
+    const canEdit = canManageEvents();
+    const events = [...state.events].sort((a, b) => new Date(a.date) - new Date(b.date));
+    return `${pageIntro("Never miss a date", "Academic calendar", "Examinations, quizzes, project deadlines, consultations, and special class sessions in one chronological view.", canEdit ? button("＋ Add calendar item", "toggle-event-form", "", "btn-primary") : "")}
+      ${state.showEventForm ? eventForm(state.events.find(item => item.id === state.editingEvent)) : ""}
+      <section class="surface-card p-4 sm:p-6"><div class="mb-4 flex items-center justify-between"><div><h3 class="font-bold">Upcoming academic dates</h3><p class="mt-1 text-xs text-slate-500">${events.length} scheduled items</p></div></div>
+        <div class="divide-y divide-slate-100">${events.length ? events.map(event => `<div class="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">${eventRow(event)}${canEdit ? `<div class="flex shrink-0 gap-2 sm:ml-2">${button("Edit", "edit-event", `data-id="${event.id}"`)}${button("Delete", "delete-event", `data-id="${event.id}"`, "btn-danger")}</div>` : ""}</div>`).join("") : emptyState("Nothing scheduled", "New academic events will appear here.")}</div>
+      </section>`;
+  }
+
+  function eventForm(item = null, examOnly = false) {
+    const eventTypes = examOnly ? ["Examination", "Quiz"] : ["Quiz", "Examination", "Project Deadline", "Consultation", "Special Class"];
+    const formId = examOnly ? "exam-event-form" : "event-form";
+    const formTitle = examOnly ? "exam" : "calendar item";
+    return `<form id="${formId}" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">${item ? `Edit ${formTitle}` : `Add ${formTitle}`}</h3>${button("Cancel", examOnly ? "cancel-exam-form" : "cancel-event-form")}</div>
+      <input type="hidden" name="id" value="${item ? escapeHtml(item.id) : ""}"><div class="grid gap-3 sm:grid-cols-2">
+      <label class="block text-xs font-semibold text-slate-600">Title<input class="form-control mt-1.5" name="title" required value="${item ? escapeHtml(item.title) : ""}"></label>
+      <label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" required value="${item ? escapeHtml(item.subject) : ""}"></label>
+      <label class="block text-xs font-semibold text-slate-600">Type<select name="type" class="form-control mt-1.5">${eventTypes.map(type => `<option ${item?.type === type ? "selected" : ""}>${type}</option>`).join("")}</select></label>
+      <label class="block text-xs font-semibold text-slate-600">Date and time<input class="form-control mt-1.5" type="datetime-local" name="date" required value="${item ? escapeHtml(new Date(new Date(item.date).getTime() - new Date(item.date).getTimezoneOffset() * 60000).toISOString().slice(0, 16)) : ""}"></label>
+      <label class="block text-xs font-semibold text-slate-600">Location<input class="form-control mt-1.5" name="location" required value="${item ? escapeHtml(item.location) : ""}"></label>
+      <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Details<textarea class="form-control mt-1.5" rows="3" name="details">${item ? escapeHtml(item.details) : ""}</textarea></label>
+      </div><div class="mt-4 flex justify-end"><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white">${item ? "Save changes" : "Add to calendar"}</button></div></form>`;
+  }
+
+  function renderManagement() {
+    const users = state.users;
+    const counts = ["student", "professor", "officer", "admin"].map(role => [role, users.filter(user => user.role === role && user.active).length]);
+    return `${pageIntro("Administration", "User management", "Invite accounts, assign access, update names, or deactivate accounts here.", button("＋ Invite user", "toggle-user-form", "", "btn-primary"))}
+      <div class="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">${counts.map(([role, count]) => `<div class="surface-card p-4"><p class="text-xs font-semibold uppercase tracking-wider text-slate-500">${roles[role].label}s</p><p class="mt-2 text-2xl font-bold">${count}</p><p class="text-xs text-slate-500">active accounts</p></div>`).join("")}</div>
+      ${state.showUserForm ? userForm(state.users.find(item => item.id === state.editingUser)) : ""}
+      <section class="surface-card mb-5 p-4 sm:p-5"><h3 class="font-bold">Issue a one-time role key</h3><p class="mt-1 text-xs text-slate-500">The key is shown only once. Share it securely with the intended account holder.</p><div class="mt-3 flex flex-wrap gap-2">${["professor", "officer", "admin"].map(role => button(`Generate ${roles[role].label} key`, "issue-role-key", `data-role="${role}"`)).join("")}</div><div id="issued-key-container" class="mt-3 hidden"><label class="block text-xs font-semibold text-slate-600">Copy this one-time key now<input id="issued-role-key" class="form-control mt-1.5 font-mono" readonly></label></div></section>
+      <section class="surface-card overflow-hidden"><div class="border-b border-slate-100 p-4 sm:px-5"><h3 class="font-bold">Campus accounts</h3><p class="mt-1 text-xs text-slate-500">${users.length} accounts · ${users.filter(user => user.active).length} active</p></div>
+      <div class="overflow-x-auto"><table class="w-full min-w-[720px] text-left"><thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th class="px-5 py-3 font-semibold">User</th><th class="px-5 py-3 font-semibold">Role</th><th class="px-5 py-3 font-semibold">Status</th><th class="px-5 py-3 text-right font-semibold">Actions</th></tr></thead><tbody class="divide-y divide-slate-100">${users.map(user => `<tr class="${user.active ? "" : "opacity-55"}"><td class="px-5 py-4"><p class="text-sm font-semibold">${escapeHtml(user.name)}</p><p class="mt-0.5 text-xs text-slate-500">${escapeHtml(user.email)}</p></td><td class="px-5 py-4"><select class="form-control w-auto min-w-36 py-2 text-xs" data-user-role="${escapeHtml(user.id)}" aria-label="Role for ${escapeHtml(user.name)}">${Object.entries(roles).map(([role, info]) => `<option value="${role}" ${user.role === role ? "selected" : ""}>${info.label}</option>`).join("")}</select></td><td class="px-5 py-4"><span class="inline-flex items-center gap-1.5 text-xs font-medium ${user.active ? "text-emerald-700" : "text-slate-500"}"><span class="h-1.5 w-1.5 rounded-full ${user.active ? "bg-emerald-500" : "bg-slate-400"}"></span>${user.active ? "Active" : "Deactivated"}</span></td><td class="px-5 py-4"><div class="flex justify-end gap-2">${button("Edit", "edit-user", `data-id="${user.id}"`)}${button(user.active ? "Deactivate" : "Reactivate", "toggle-user-active", `data-id="${user.id}"`, user.active ? "btn-danger" : "btn-secondary")}</div></td></tr>`).join("")}</tbody></table></div></section>`;
+  }
+
+  function renderSettings() {
+    const account = currentUser();
+    return `${pageIntro("Your profile", "Account settings", "Update your password through your secure CampusHub account.")}
+      <div class="grid gap-6 lg:grid-cols-[.8fr_1.2fr]">
+        <section class="surface-card p-5 sm:p-6"><p class="text-xs font-bold uppercase tracking-[.14em] text-slate-500">Signed in as</p><h3 class="mt-2 text-lg font-bold">${escapeHtml(account?.name || "")}</h3><p class="mt-1 text-sm text-slate-500">${escapeHtml(account?.email || "")}</p><span class="mt-4 inline-flex rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700">${escapeHtml(roles[state.activeRole].label)}</span><p class="mt-4 text-xs leading-5 text-slate-500">Your access level can be granted by an administrator or through a one-time role key.</p></section>
+        <section class="surface-card p-5 sm:p-6"><h3 class="text-lg font-bold">Change password</h3><p class="mt-1 text-sm text-slate-500">Confirm your current password and choose a new one.</p>
+          <form id="password-form" class="mt-5 space-y-4">
+            <label class="block text-xs font-semibold text-slate-600">Current password<input class="form-control mt-1.5" type="password" name="currentPassword" autocomplete="current-password" required></label>
+            <label class="block text-xs font-semibold text-slate-600">New password <span class="font-normal text-slate-400">(at least 8 characters)</span><input class="form-control mt-1.5" type="password" name="newPassword" autocomplete="new-password" minlength="8" required></label>
+            <label class="block text-xs font-semibold text-slate-600">Confirm new password<input class="form-control mt-1.5" type="password" name="confirmPassword" autocomplete="new-password" minlength="8" required></label>
+            <p id="password-message" class="hidden rounded-lg px-3 py-2 text-sm" role="status"></p>
+            <div class="flex justify-end"><button class="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700">Update password</button></div>
+          </form>
+        </section>
+      </div>`;
+  }
+
+  async function setUserRole(user, role) {
+    if (!user || !roles[role] || !requireRole(["admin"])) return false;
+    try {
+      await window.CampusHubStore.updateProfile({ ...user, role });
+      user.role = role;
+      if (user.id === state.currentUserId) state.activeRole = role;
+      dataReady = false;
+      await bootstrapSession({ id: state.currentUserId });
+      showToast(`${user.name}'s role is now ${roles[role].label}.`);
+      return true;
+    } catch (error) {
+      console.error("CampusHub could not update the account role.", error);
+      showToast(error.message || "The account role could not be updated.", "error");
+      render();
+      return false;
+    }
+  }
+
+  function userForm(user = null) {
+    if (!user) {
+      return `<form id="user-form" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">Invite account</h3>${button("Cancel", "cancel-user-form")}</div>
+        <div class="grid gap-3 sm:grid-cols-2"><label class="block text-xs font-semibold text-slate-600">Full name<input class="form-control mt-1.5" name="name" maxlength="100" required></label>
+        <label class="block text-xs font-semibold text-slate-600">Email address<input class="form-control mt-1.5" name="email" type="email" maxlength="254" required></label></div>
+        <p class="mt-3 text-xs text-slate-500">The user will receive a secure email invitation and create their password through Supabase.</p><div class="mt-4 flex justify-end"><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white">Send invitation</button></div></form>`;
+    }
+    return `<form id="user-form" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">Edit account</h3>${button("Cancel", "cancel-user-form")}</div>
+      <input type="hidden" name="id" value="${escapeHtml(user.id)}"><label class="block text-xs font-semibold text-slate-600">Full name<input class="form-control mt-1.5" name="name" maxlength="100" required value="${escapeHtml(user.name)}"></label>
+      <p class="mt-3 text-xs text-slate-500">Email and password are managed by Supabase Authentication.</p><div class="mt-4 flex justify-end"><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white">Save account</button></div></form>`;
+  }
+
+  function field(label, name, value = "", type = "text", required = false) {
+    return `<label class="block text-xs font-semibold text-slate-600">${label}<input class="form-control mt-1.5" name="${name}" type="${type}" ${required ? "required" : ""} value="${value ? escapeHtml(value) : ""}"></label>`;
+  }
+
+  function showToast(message, type = "success") {
+    document.getElementById("toast")?.remove();
+    const element = document.createElement("div");
+    element.id = "toast";
+    element.className = `toast-message fixed bottom-5 right-5 z-50 max-w-sm rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-xl ${type === "error" ? "bg-rose-600" : "bg-slate-900"}`;
+    element.setAttribute("role", "status");
+    element.textContent = message;
+    document.body.append(element);
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => element.remove(), 3200);
+  }
+
+  function setFormMessage(element, message, isError = false) {
+    element.textContent = message;
+    element.classList.remove("hidden", "auth-message-success", "auth-message-error");
+    element.classList.add(isError ? "auth-message-error" : "auth-message-success");
+  }
+
+  function clearFormMessage(element) {
+    element.textContent = "";
+    element.classList.add("hidden");
+    element.classList.remove("auth-message-success", "auth-message-error");
+  }
+
+  function setAuthMode(mode) {
+    const isRegister = mode === "register";
+    document.getElementById("login-form").classList.toggle("hidden", isRegister);
+    document.getElementById("register-form").classList.toggle("hidden", !isRegister);
+    document.querySelectorAll("[data-auth-tab]").forEach(tab => tab.classList.toggle("is-selected", tab.dataset.authTab === mode));
+    document.getElementById("auth-heading").textContent = isRegister ? "Create your account" : "Sign in to your campus";
+    document.getElementById("auth-description").textContent = isRegister ? "Create a student account to get started." : "Log in to continue to your CampusHub.";
+    clearFormMessage(authMessage);
+  }
+
+  function openAuthModal(mode = "login") {
+    if (currentUser()) return;
+    accessModal.hidden = true;
+    authModal.hidden = false;
+    setAuthMode(mode);
+    const form = document.getElementById(`${mode}-form`);
+    form.querySelector("input")?.focus();
+  }
+
+  function closeModals() {
+    authModal.hidden = true;
+    accessModal.hidden = true;
+  }
+
+  async function bootstrapSession(authUser) {
+    if (!authUser) {
+      dataReady = false;
+      state.currentUserId = null;
+      state.users = [];
+      state.activeRole = "student";
+      if (realtimeChannel) {
+        window.CampusHubStore.client.removeChannel(realtimeChannel);
+        realtimeChannel = null;
+      }
+      render();
+      return;
+    }
+    if (dataReady && state.currentUserId === authUser.id) return;
+    if (bootstrappingUserId === authUser.id) {
+      await new Promise(resolve => {
+        const waiters = bootstrapWaiters.get(authUser.id) || [];
+        waiters.push(resolve);
+        bootstrapWaiters.set(authUser.id, waiters);
+      });
+      return;
+    }
+    bootstrappingUserId = authUser.id;
+    try {
+      const data = await window.CampusHubStore.load(authUser.id, state.activeRole === "admin");
+      state.currentUserId = data.user.id;
+      state.activeRole = data.user.role;
+      state.users = [...data.users.filter(user => user.id !== data.user.id), data.user];
+      state.announcements = data.announcements;
+      state.schedules = data.schedules;
+      state.events = data.events;
+      state.scheduleHistory = data.scheduleHistory;
+      state.studentCount = data.studentCount;
+      dataReady = true;
+      render();
+      if (!realtimeChannel) {
+        let refreshTimer;
+        realtimeChannel = window.CampusHubStore.watch(() => {
+          clearTimeout(refreshTimer);
+          refreshTimer = setTimeout(async () => {
+            if (!currentUser()) return;
+            try {
+              const latest = await window.CampusHubStore.load(authUser.id, state.activeRole === "admin");
+              state.announcements = latest.announcements;
+              state.schedules = latest.schedules;
+              state.events = latest.events;
+              state.scheduleHistory = latest.scheduleHistory;
+              state.studentCount = latest.studentCount;
+              if (state.activeRole === "admin") {
+                state.users = [...latest.users.filter(user => user.id !== latest.user.id), latest.user];
+              }
+              render();
+            } catch (error) {
+              console.error("CampusHub could not refresh shared data.", error);
+              showToast(error.message || "Shared data could not be refreshed.", "error");
+            }
+          }, 150);
+        });
+      }
+    } catch (error) {
+      dataReady = false;
+      state.currentUserId = null;
+      render();
+      console.error("CampusHub could not load the shared campus data.", error);
+      showToast(error.message || "CampusHub could not load the shared data.", "error");
+    } finally {
+      bootstrappingUserId = null;
+      (bootstrapWaiters.get(authUser.id) || []).forEach(resolve => resolve());
+      bootstrapWaiters.delete(authUser.id);
+    }
+  }
+
+  document.querySelectorAll("[data-open-auth]").forEach(button => {
+    button.addEventListener("click", () => openAuthModal(button.dataset.openAuth));
+  });
+
+  document.querySelectorAll("[data-auth-tab]").forEach(button => {
+    button.addEventListener("click", () => setAuthMode(button.dataset.authTab));
+  });
+
+  document.querySelectorAll("[data-close-modal]").forEach(button => {
+    button.addEventListener("click", closeModals);
+  });
+
+  [authModal, accessModal].forEach(modal => {
+    modal.addEventListener("click", event => {
+      if (event.target === modal) closeModals();
+    });
+  });
+
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape") closeModals();
+  });
+
+  authModal.addEventListener("submit", async event => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || !["login-form", "register-form"].includes(form.id)) return;
+    event.preventDefault();
+    const values = formValues(form);
+    const email = values.email.trim().toLowerCase();
+    const submitButton = form.querySelector('button[type="submit"], button:not([type])');
+    if (submitButton) submitButton.disabled = true;
+    try {
+      if (!window.CampusHubStore.ready) throw new Error("Supabase is not configured yet. Add your project URL and anon key to supabase-config.js.");
+      if (form.id === "register-form") {
+        const name = values.name.trim();
+        if (name.length < 2) throw new Error("Enter your full name.");
+        if (values.password.length < 8) throw new Error("Choose a password with at least 8 characters.");
+        const { data, error } = await window.CampusHubStore.client.auth.signUp({
+          email,
+          password: values.password,
+          options: {
+            data: { full_name: name },
+            emailRedirectTo: window.location.href.split("#")[0]
+          }
+        });
+        if (error) throw error;
+        form.reset();
+        if (data.session) {
+          await bootstrapSession(data.user);
+          closeModals();
+        } else {
+          setAuthMode("login");
+          document.querySelector('#login-form [name="email"]').value = email;
+          setFormMessage(authMessage, "Account created. Check your email to confirm your account, then log in.");
+        }
+      } else {
+        const { data, error } = await window.CampusHubStore.client.auth.signInWithPassword({ email, password: values.password });
+        if (error) throw error;
+        await bootstrapSession(data.user);
+        if (!currentUser()) throw new Error("This account is inactive or could not be loaded.");
+        form.reset();
+        closeModals();
+      }
+    } catch (error) {
+      setFormMessage(authMessage, error.message || "Authentication could not be completed.", true);
+    } finally {
+      if (submitButton) submitButton.disabled = false;
+    }
+  });
+
+  document.getElementById("logout-button").addEventListener("click", async () => {
+    try {
+      const { error } = await window.CampusHubStore.client.auth.signOut();
+      if (error) throw error;
+      state.currentUserId = null;
+      state.activeRole = "student";
+      state.activeTab = "dashboard";
+      dataReady = false;
+      closeModals();
+      render();
+      showToast("You have been logged out.");
+    } catch (error) {
+      console.error("CampusHub could not sign out.", error);
+      showToast(error.message || "You could not be signed out.", "error");
+    }
+  });
+
+  document.getElementById("redeem-key-button").addEventListener("click", () => {
+    if (!currentUser()) return;
+    clearFormMessage(accessMessage);
+    accessModal.hidden = false;
+    document.querySelector('#access-form [name="key"]').focus();
+  });
+
+  accessModal.addEventListener("submit", async event => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || form.id !== "access-form") return;
+    event.preventDefault();
+    const account = currentUser();
+    if (!account) return;
+    if (account.role !== "student") {
+      setFormMessage(accessMessage, "Your account already has elevated access.", true);
+      return;
+    }
+    const submitButton = form.querySelector("button");
+    submitButton.disabled = true;
+    try {
+      const role = await window.CampusHubStore.redeemRoleKey(new FormData(form).get("key"));
+      if (!roles[role] || role === "student") throw new Error("The key did not grant a supported role.");
+      account.role = role;
+      state.activeRole = role;
+      state.activeTab = "dashboard";
+      form.reset();
+      closeModals();
+      dataReady = false;
+      await bootstrapSession({ id: account.id });
+      showToast(`Access activated: ${roles[role].label}.`);
+    } catch (error) {
+      setFormMessage(accessMessage, error.message || "Access key could not be verified.", true);
+    } finally {
+      submitButton.disabled = false;
+    }
+  });
+
+  function requireRole(allowed) {
+    if (!allowed.includes(state.activeRole)) {
+      showToast("You do not have permission to perform that action.", "error");
+      return false;
+    }
+    return true;
+  }
+
+  function generateId(prefix) {
+    return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  }
+
+  function formValues(form) {
+    return Object.fromEntries(new FormData(form).entries());
+  }
+
+  function recordScheduleChange(description) {
+    state.scheduleHistory.unshift({ id: generateId("hist"), text: description, actor: currentUser()?.name || roles[state.activeRole].name, at: new Date().toISOString() });
+  }
+
+  async function setUserActive(user, active) {
+    if (!user || !requireRole(["admin"])) return;
+    try {
+      await window.CampusHubStore.updateProfile({ ...user, active });
+      user.active = active;
+      if (!active && user.id === state.currentUserId) {
+        await window.CampusHubStore.client.auth.signOut();
+        dataReady = false;
+        state.currentUserId = null;
+        state.activeRole = "student";
+        render();
+      } else {
+        dataReady = false;
+        await bootstrapSession({ id: state.currentUserId });
+      }
+      showToast(`Account ${active ? "reactivated" : "deactivated"}.`);
+    } catch (error) {
+      console.error("CampusHub could not update account status.", error);
+      showToast(error.message || "Account status could not be updated.", "error");
+      render();
+    }
+  }
+
+  async function acknowledgeAnnouncement(announcement) {
+    if (!requireRole(["student"]) || !announcement || announcement.acknowledgments.includes(activeUserId())) return;
+    try {
+      await window.CampusHubStore.acknowledge(announcement.id);
+      announcement.acknowledgments.push(activeUserId());
+      render();
+      showToast("Your acknowledgment has been recorded.");
+    } catch (error) {
+      console.error("CampusHub could not record the acknowledgment.", error);
+      showToast(error.message || "Your acknowledgment could not be saved.", "error");
+    }
+  }
+
+  async function generateRoleKey(role) {
+    if (!requireRole(["admin"])) return;
+    try {
+      const key = await window.CampusHubStore.issueRoleKey(role);
+      const container = document.getElementById("issued-key-container");
+      const input = document.getElementById("issued-role-key");
+      input.value = key;
+      container.classList.remove("hidden");
+      input.focus();
+      input.select();
+      showToast(`${roles[role].label} access key generated. Copy it now; it is shown only once.`);
+    } catch (error) {
+      console.error("CampusHub could not issue a role key.", error);
+      showToast(error.message || "A role key could not be issued.", "error");
+    }
+  }
+
+  nav.addEventListener("click", event => {
+    const target = event.target.closest("[data-tab]");
+    if (!target) return;
+    const tab = target.dataset.tab;
+    if (tab === "management" && state.activeRole !== "admin") {
+      showToast("User management is available to administrators only.", "error");
+      return;
+    }
+    state.activeTab = tab;
+    render();
+  });
+
+  content.addEventListener("change", event => {
+    if (event.target.id === "announcement-filter") {
+      state.announcementFilter = event.target.value;
+      render();
+      return;
+    }
+    const roleSelect = event.target.closest("[data-user-role]");
+    if (roleSelect) {
+      const user = state.users.find(item => item.id === roleSelect.dataset.userRole);
+      if (user) setUserRole(user, roleSelect.value);
+    }
+  });
+
+  content.addEventListener("click", event => {
+    const control = event.target.closest("[data-action]");
+    if (!control) return;
+    const { action, id, target } = control.dataset;
+    const announcement = state.announcements.find(item => item.id === id);
+    const schedule = state.schedules.find(item => item.id === id);
+    const calendarEvent = state.events.find(item => item.id === id);
+    const user = state.users.find(item => item.id === id);
+    switch (action) {
+      case "navigate":
+        if (target === "management" && state.activeRole !== "admin") return;
+        state.activeTab = target;
+        render();
+        break;
+      case "open-import":
+        openImportDialog();
+        break;
+      case "export-schedules":
+        exportScheduleData();
+        break;
+      case "issue-role-key":
+        generateRoleKey(control.dataset.role);
+        break;
+      case "toggle-announcement-form":
+        if (!requireRole(["professor", "officer", "admin"])) return;
+        state.showAnnouncementForm = !state.showAnnouncementForm;
+        render();
+        break;
+      case "cancel-announcement-form":
+        state.editingAnnouncement = null; state.showAnnouncementForm = false; render();
+        break;
+      case "edit-announcement":
+        if (!requireRole(["professor", "officer", "admin"])) return;
+        if (!announcement || !(state.activeRole === "admin" || announcement.authorRole === state.activeRole)) return showToast("You can only edit announcements posted by your role.", "error");
+        state.editingAnnouncement = id; state.showAnnouncementForm = true; render();
+        break;
+      case "archive-announcement":
+        if (!requireRole(["professor", "officer", "admin"])) return;
+        if (!announcement || !(state.activeRole === "admin" || announcement.authorRole === state.activeRole)) return showToast("You can only archive announcements posted by your role.", "error");
+        announcement.archived = true; saveState(); render(); showToast("Announcement archived.");
+        break;
+      case "restore-announcement":
+        if (!requireRole(["admin"])) return;
+        if (!announcement) return;
+        announcement.archived = false; saveState(); render(); showToast("Announcement restored.");
+        break;
+      case "delete-announcement":
+        if (!requireRole(["professor", "officer", "admin"])) return;
+        if (!announcement || !(state.activeRole === "admin" || announcement.authorRole === state.activeRole)) return showToast("You can only delete announcements posted by your role.", "error");
+        if (confirm("Delete this announcement permanently?")) {
+          state.announcements = state.announcements.filter(item => item.id !== id); saveState(); render(); showToast("Announcement deleted.");
+        }
+        break;
+      case "acknowledge":
+        acknowledgeAnnouncement(announcement);
+        break;
+      case "toggle-schedule-form":
+        if (!requireRole(["professor", "officer", "admin"])) return;
+        state.showScheduleForm = !state.showScheduleForm; render();
+        break;
+      case "cancel-schedule-form":
+        state.editingSchedule = null; state.showScheduleForm = false; render();
+        break;
+      case "edit-schedule":
+        if (!requireRole(["professor", "officer", "admin"])) return;
+        if (schedule) { state.editingSchedule = id; state.showScheduleForm = true; render(); }
+        break;
+      case "delete-schedule":
+        if (!requireRole(["professor", "officer", "admin"])) return;
+        if (schedule && confirm(`Remove ${schedule.subject} from the timetable?`)) {
+          recordScheduleChange(`${schedule.subject} removed from ${schedule.day} timetable`);
+          state.schedules = state.schedules.filter(item => item.id !== id); saveState(); render(); showToast("Class removed from timetable.");
+        }
+        break;
+      case "toggle-event-form":
+        if (!requireRole(["professor", "admin"])) return;
+        state.showEventForm = !state.showEventForm; render();
+        break;
+      case "toggle-exam-form":
+        if (!requireRole(["professor", "admin"])) return;
+        state.showExamForm = !state.showExamForm; render();
+        break;
+      case "cancel-exam-form":
+        state.editingExam = null; state.showExamForm = false; render();
+        break;
+      case "edit-exam":
+        if (!requireRole(["professor", "admin"])) return;
+        if (calendarEvent && ["Examination", "Quiz"].includes(calendarEvent.type)) {
+          state.editingExam = id; state.showExamForm = true; render();
+        }
+        break;
+      case "delete-exam":
+        if (!requireRole(["professor", "admin"])) return;
+        if (calendarEvent && ["Examination", "Quiz"].includes(calendarEvent.type) && confirm(`Remove "${calendarEvent.title}" from the exam timetable?`)) {
+          state.events = state.events.filter(item => item.id !== id); saveState(); render(); showToast("Assessment removed from the exam timetable.");
+        }
+        break;
+      case "cancel-event-form":
+        state.editingEvent = null; state.showEventForm = false; render();
+        break;
+      case "edit-event":
+        if (!requireRole(["professor", "admin"])) return;
+        if (calendarEvent) { state.editingEvent = id; state.showEventForm = true; render(); }
+        break;
+      case "delete-event":
+        if (!requireRole(["professor", "admin"])) return;
+        if (calendarEvent && confirm(`Delete "${calendarEvent.title}" from the calendar?`)) {
+          state.events = state.events.filter(item => item.id !== id); saveState(); render(); showToast("Calendar item deleted.");
+        }
+        break;
+      case "toggle-user-form":
+        if (!requireRole(["admin"])) return;
+        state.showUserForm = !state.showUserForm; render();
+        break;
+      case "cancel-user-form":
+        state.editingUser = null; state.showUserForm = false; render();
+        break;
+      case "edit-user":
+        if (!requireRole(["admin"])) return;
+        if (user) { state.editingUser = id; state.showUserForm = true; render(); }
+        break;
+      case "toggle-user-active":
+        if (!requireRole(["admin"])) return;
+        if (user) setUserActive(user, !user.active);
+        break;
+    }
+  });
+
+  content.addEventListener("submit", async event => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    const formId = form.getAttribute("id");
+    if (formId === "password-form") {
+      event.preventDefault();
+      const account = currentUser();
+      const values = formValues(form);
+      const message = document.getElementById("password-message");
+      const button = form.querySelector("button");
+      button.disabled = true;
+      try {
+        if (!account) throw new Error("Please log in again to change your password.");
+        if (values.newPassword.length < 8) throw new Error("Your new password must contain at least 8 characters.");
+        if (values.newPassword !== values.confirmPassword) throw new Error("The new passwords do not match.");
+        await window.CampusHubStore.changePassword(values.currentPassword, values.newPassword);
+        form.reset();
+        setFormMessage(message, "Your password has been updated.");
+      } catch (error) {
+        setFormMessage(message, error.message || "Password could not be updated.", true);
+      } finally {
+        button.disabled = false;
+      }
+      return;
+    }
+    if (!["announcement-form", "schedule-form", "event-form", "exam-event-form", "user-form"].includes(formId)) return;
+    event.preventDefault();
+    const values = formValues(form);
+    if (formId === "announcement-form") {
+      if (!requireRole(["professor", "officer", "admin"])) return;
+      if (values.id) {
+        const item = state.announcements.find(entry => entry.id === values.id);
+        if (!item || !(state.activeRole === "admin" || item.authorRole === state.activeRole)) return showToast("You cannot edit this announcement.", "error");
+        Object.assign(item, { title: values.title.trim(), subject: values.subject.trim(), category: values.category, content: values.content.trim(), urgent: form.elements.urgent.checked });
+        showToast("Announcement updated.");
+      } else {
+        state.announcements.unshift({ id: generateId("ann"), title: values.title.trim(), subject: values.subject.trim(), category: values.category, content: values.content.trim(), urgent: form.elements.urgent.checked, author: currentUser()?.name || roles[state.activeRole].name, authorRole: state.activeRole, createdAt: new Date().toISOString(), archived: false, acknowledgments: [] });
+        showToast("Announcement published.");
+      }
+      state.showAnnouncementForm = false; state.editingAnnouncement = null; saveState(); render();
+    } else if (formId === "schedule-form") {
+      if (!requireRole(["professor", "officer", "admin"])) return;
+      if (values.start >= values.end) return showToast("End time must be later than start time.", "error");
+      const previous = values.id ? state.schedules.find(item => item.id === values.id) : null;
+      if (previous) {
+        Object.assign(previous, { day: values.day, start: values.start, end: values.end, subject: values.subject.trim(), instructor: values.instructor.trim(), room: values.room.trim() });
+        recordScheduleChange(`${previous.subject} updated: ${previous.day}, ${previous.start}–${previous.end}, ${previous.room}`);
+        showToast("Timetable updated.");
+      } else {
+        const created = { id: generateId("sch"), day: values.day, start: values.start, end: values.end, subject: values.subject.trim(), instructor: values.instructor.trim(), room: values.room.trim() };
+        state.schedules.push(created); recordScheduleChange(`${created.subject} added to ${created.day}, ${created.start}–${created.end}`);
+        showToast("Class added to timetable.");
+      }
+      state.showScheduleForm = false; state.editingSchedule = null; saveState(); render();
+    } else if (formId === "event-form" || formId === "exam-event-form") {
+      if (!requireRole(["professor", "admin"])) return;
+      if (formId === "exam-event-form" && !["Examination", "Quiz"].includes(values.type)) return showToast("Choose an exam or quiz type.", "error");
+      const date = new Date(values.date);
+      if (Number.isNaN(date.getTime())) return showToast("Enter a valid date and time.", "error");
+      const update = { title: values.title.trim(), type: values.type, subject: values.subject.trim(), date: date.toISOString(), location: values.location.trim(), details: values.details.trim() };
+      const existing = values.id ? state.events.find(item => item.id === values.id) : null;
+      if (existing) { Object.assign(existing, update); showToast("Calendar item updated."); }
+      else { state.events.push({ id: generateId("evt"), ...update }); showToast("Calendar item added."); }
+      if (formId === "exam-event-form") { state.showExamForm = false; state.editingExam = null; }
+      else { state.showEventForm = false; state.editingEvent = null; }
+      saveState(); render();
+    } else if (formId === "user-form") {
+      if (!requireRole(["admin"])) return;
+      const submitButton = form.querySelector("button[type='submit'], button:not([type])");
+      if (submitButton) submitButton.disabled = true;
+      if (!values.id) {
+        try {
+          const invited = await window.CampusHubStore.inviteUser(values.name.trim(), values.email.trim().toLowerCase());
+          state.showUserForm = false;
+          form.reset();
+          dataReady = false;
+          await bootstrapSession({ id: state.currentUserId });
+          showToast(`Invitation sent to ${invited.email}.`);
+        } catch (error) {
+          console.error("CampusHub could not invite the account.", error);
+          showToast(error.message || "The account invitation could not be sent.", "error");
+        } finally {
+          if (submitButton) submitButton.disabled = false;
+        }
+        return;
+      }
+      const existing = state.users.find(entry => entry.id === values.id);
+      if (!existing) {
+        if (submitButton) submitButton.disabled = false;
+        return showToast("Account not found.", "error");
+      }
+      try {
+        await window.CampusHubStore.updateProfile({ ...existing, name: values.name.trim() });
+        existing.name = values.name.trim();
+        state.showUserForm = false; state.editingUser = null;
+        render();
+        showToast("Account updated.");
+      } catch (error) {
+        console.error("CampusHub could not update the account.", error);
+        showToast(error.message || "Account could not be updated.", "error");
+      } finally {
+        if (submitButton) submitButton.disabled = false;
+      }
+    }
+  });
+
+  state = initialState();
+  try {
+    const preferences = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || "{}");
+    if (navItems.some(item => item.id === preferences.activeTab)) state.activeTab = preferences.activeTab;
+    if (typeof preferences.announcementFilter === "string") state.announcementFilter = preferences.announcementFilter;
+  } catch (error) {
+    console.error("CampusHub could not load browser preferences.", error);
+  }
+  if (!window.CampusHubStore.ready) {
+    render();
+    showToast("Add your Supabase URL and anon key to supabase-config.js to connect shared storage.", "error");
+  } else {
+    window.CampusHubStore.client.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT") setTimeout(() => bootstrapSession(null), 0);
+      else if (event === "SIGNED_IN") setTimeout(() => bootstrapSession(session?.user), 0);
+    });
+    window.CampusHubStore.client.auth.getSession()
+      .then(({ data, error }) => {
+        if (error) throw error;
+        return bootstrapSession(data.session?.user || null);
+      })
+      .catch(error => {
+        console.error("CampusHub could not restore the authentication session.", error);
+        render();
+        showToast(error.message || "The sign-in session could not be restored.", "error");
+      });
+  }
+})();
