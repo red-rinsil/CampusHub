@@ -41,6 +41,12 @@
     announcementFilter: "All",
     currentUserId: null,
     studentCount: 0,
+    membership: null,
+    sections: [],
+    offerings: [],
+    assignments: [],
+    studentCounts: {},
+    activeOfferingId: null,
     roleKeys: [],
     users: [],
     announcements: [
@@ -84,6 +90,7 @@
   const authenticatedApp = document.getElementById("authenticated-app");
   const authModal = document.getElementById("auth-modal");
   const accessModal = document.getElementById("access-modal");
+  const sectionModal = document.getElementById("section-modal");
   const importModal = document.getElementById("import-modal");
   const authMessage = document.getElementById("auth-message");
   const accessMessage = document.getElementById("access-message");
@@ -118,6 +125,45 @@
 
   function canManageEvents() {
     return ["professor", "admin"].includes(state.activeRole);
+  }
+
+  function currentOffering() {
+    return state.offerings.find(item => item.id === state.activeOfferingId) || null;
+  }
+
+  function offeringScoped(items) {
+    return items.filter(item => item.offeringId === state.activeOfferingId);
+  }
+
+  function currentSection() {
+    return state.sections.find(item => item.id === state.membership?.section_id) || null;
+  }
+
+  function renderOfferingContext() {
+    const select = document.getElementById("active-offering-select");
+    const wrapper = document.getElementById("active-offering-wrapper");
+    const joinButton = document.getElementById("join-section-button");
+    const account = currentUser();
+    wrapper.hidden = !account || state.offerings.length === 0;
+    select.replaceChildren();
+    state.offerings.forEach(offering => {
+      const section = state.sections.find(item => item.id === offering.section_id);
+      const option = document.createElement("option");
+      option.value = offering.id;
+      option.textContent = `${offering.subject}${offering.course_code ? ` (${offering.course_code})` : ""} — ${section?.name || "Section"}`;
+      option.selected = offering.id === state.activeOfferingId;
+      select.append(option);
+    });
+    joinButton.hidden = !account || state.activeRole !== "student" || Boolean(state.membership);
+  }
+
+  function visibleCollections() {
+    return {
+      announcements: offeringScoped(state.announcements),
+      schedules: offeringScoped(state.schedules),
+      events: offeringScoped(state.events),
+      scheduleHistory: offeringScoped(state.scheduleHistory)
+    };
   }
 
   function activeUserId() {
@@ -196,8 +242,16 @@
     if (state.activeTab === "management" && state.activeRole !== "admin") state.activeTab = "dashboard";
     document.getElementById("account-name").textContent = account.name;
     document.getElementById("account-role").textContent = `${roles[state.activeRole].label} · ${account.email}`;
+    renderOfferingContext();
     document.getElementById("page-heading").textContent = pageTitle();
     renderNav();
+    if (!state.offerings.length && !(state.activeTab === "management" && state.activeRole === "admin")) {
+      const joinAction = state.activeRole === "student" && !state.membership
+        ? button("Join a section", "open-section-join", "", "btn-primary")
+        : "";
+      content.innerHTML = `<section class="surface-card mx-auto max-w-2xl p-6 text-center sm:p-8"><p class="text-xs font-bold uppercase tracking-[.16em] text-indigo-600">${state.activeRole === "admin" ? "Class setup" : "Class access"}</p><h2 class="mt-2 text-2xl font-bold">${state.activeRole === "student" && !state.membership ? "Join your section to get started" : "No class offerings are available yet"}</h2><p class="mt-2 text-sm leading-6 text-slate-500">${state.activeRole === "student" && !state.membership ? "Enter the permanent section key provided by your school. Your section's subjects, schedules, exams, and announcements will then appear here." : "Ask an administrator to create class offerings and assign you to them."}</p>${joinAction || (state.activeRole === "admin" ? button("Set up sections", "navigate", 'data-target="management"', "btn-primary") : "")}</section>`;
+      return;
+    }
     const pages = {
       dashboard: renderDashboard,
       announcements: renderAnnouncements,
@@ -207,7 +261,9 @@
       management: renderManagement,
       settings: renderSettings
     };
-    content.innerHTML = (pages[state.activeTab] || renderDashboard)();
+    const section = state.sections.find(item => item.id === currentOffering()?.section_id);
+    const context = currentOffering() ? `<div class="mb-5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3"><div><p class="text-xs font-bold text-indigo-900">${escapeHtml(currentOffering().subject)}${currentOffering().course_code ? ` · ${escapeHtml(currentOffering().course_code)}` : ""}</p><p class="text-xs text-indigo-700">${escapeHtml(section?.name || "Section")}</p></div><p class="text-xs text-indigo-700">${state.activeRole === "student" ? "Section information" : "Managing assigned offering"}</p></div>` : "";
+    content.innerHTML = context + (pages[state.activeTab] || renderDashboard)();
   }
 
   function pageIntro(eyebrow, title, description, action = "") {
@@ -248,19 +304,22 @@
 
   function exportScheduleData() {
     if (!requireRole(["professor", "admin"])) return;
+    const offering = currentOffering();
+    if (!offering) return showToast("Select an assigned class before exporting.", "error");
+    const scoped = visibleCollections();
     const header = ["Type", "Subject", "Instructor", "Classroom", "DayOfWeek", "Time", "EndTime", "Date", "Title", "Details", "ImportedBy", "ImportedAt"];
-    const rows = state.schedules.map(item => [
+    const rows = scoped.schedules.map(item => [
       "Class", item.subject, item.instructor, item.room, item.day, item.start, item.end, item.date || "", "", "",
       item.importedByName || item.importedBy || "", item.importedAt || ""
     ]);
-    state.events.filter(item => ["Examination", "Quiz"].includes(item.type)).forEach(item => {
+    scoped.events.filter(item => ["Examination", "Quiz"].includes(item.type)).forEach(item => {
       const date = new Date(item.date);
       const localDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
       const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
       rows.push([item.type, item.subject, item.instructor || "", item.location, "", time, "", localDate, item.title, item.details || "", item.importedByName || item.importedBy || "", item.importedAt || ""]);
     });
     downloadText("campushub-schedules-and-exams.csv", [header, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n"));
-    showToast(`Exported ${state.schedules.length} classes and ${rows.length - state.schedules.length} exams/quizzes.`);
+    showToast(`Exported ${scoped.schedules.length} classes and ${rows.length - scoped.schedules.length} exams/quizzes.`);
   }
 
   function openImportDialog() {
@@ -312,7 +371,8 @@
   function applyBulkImport(result) {
     if (!requireRole(["professor", "admin"])) return;
     const account = currentUser();
-    if (!account) return;
+    const offering = currentOffering();
+    if (!account || !offering) return showToast("Select an assigned class before importing.", "error");
     const importedAt = new Date().toISOString();
     let classCount = 0;
     let examCount = 0;
@@ -327,6 +387,8 @@
           subject: record.subject,
           instructor: record.instructor,
           room: record.room,
+          offeringId: offering.id,
+          sectionId: offering.section_id,
           ...(record.date ? { date: record.date } : {}),
           importedBy: account.id,
           importedByName: account.name,
@@ -344,6 +406,8 @@
           location: record.room,
           details: record.details,
           instructor: record.instructor,
+          offeringId: offering.id,
+          sectionId: offering.section_id,
           importedBy: account.id,
           importedByName: account.name,
           importedAt
@@ -403,6 +467,16 @@
     }
     try {
       const result = window.CampusHubImport.parse(await file.text());
+      const offering = currentOffering();
+      if (!offering) {
+        renderImportPreview({ records: [], errors: ["Select an assigned class before importing."] });
+        return;
+      }
+      result.records = result.records.filter((record, index) => {
+        if (record.subject.trim().toLocaleLowerCase() === offering.subject.trim().toLocaleLowerCase()) return true;
+        result.errors.push(`Imported record ${index + 1}: subject "${record.subject}" does not match selected class "${offering.subject}".`);
+        return false;
+      });
       if (result.records.length > 10000) {
         renderImportPreview({ records: [], errors: ["Files may contain no more than 10,000 valid rows."] });
         return;
@@ -421,14 +495,15 @@
   });
 
   function renderDashboard() {
-    const nextEvents = state.events.filter(event => new Date(event.date) >= new Date()).sort((a, b) => new Date(a.date) - new Date(b.date));
-    const urgent = state.announcements.filter(item => item.urgent && !item.archived).slice(0, 2);
-    const studentCount = state.studentCount;
-    const unread = state.announcements.filter(item => !item.archived && !item.acknowledgments.includes(activeUserId())).length;
+    const scoped = visibleCollections();
+    const nextEvents = scoped.events.filter(event => new Date(event.date) >= new Date()).sort((a, b) => new Date(a.date) - new Date(b.date));
+    const urgent = scoped.announcements.filter(item => item.urgent && !item.archived).slice(0, 2);
+    const studentCount = state.studentCounts[state.activeOfferingId] || 0;
+    const unread = scoped.announcements.filter(item => !item.archived && !item.acknowledgments.includes(activeUserId())).length;
     return `${pageIntro("Your campus, at a glance", `Welcome back, ${escapeHtml((currentUser()?.name || roles[state.activeRole].name).split(" ")[0])}`, "Your classes, key dates, and the updates that matter — organized in one place.", bulkScheduleActions())}
       <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         ${metricCard("Upcoming academic dates", nextEvents.length, "Across exams, quizzes & deadlines", "text-indigo-600", "calendar")}
-        ${metricCard("Active announcements", state.announcements.filter(item => !item.archived).length, "Updates from your campus", "text-violet-600", "bell")}
+        ${metricCard("Active announcements", scoped.announcements.filter(item => !item.archived).length, "Updates from your campus", "text-violet-600", "bell")}
         ${metricCard("Unread updates", unread, "Not yet acknowledged by you", "text-amber-600", "clock")}
         ${metricCard("Students in this cohort", studentCount, "Acknowledgment audience", "text-emerald-600", "users")}
       </div>
@@ -452,7 +527,7 @@
         </section>
       </div>
       <section class="surface-card mt-6 p-5 sm:p-6"><div class="flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-emerald-600">This week</p><h3 class="mt-1 text-lg font-bold">Your class schedule</h3></div>${button("Open timetable", "navigate", 'data-target="timetable"', "btn-secondary")}</div>
-        <div class="mt-4 flex flex-wrap gap-2">${state.schedules.filter(item => item.day === new Intl.DateTimeFormat("en", { weekday: "long" }).format(new Date())).sort((a, b) => a.start.localeCompare(b.start)).map(item => `<div class="rounded-xl bg-slate-50 px-3 py-2.5"><p class="text-xs font-semibold text-indigo-700">${escapeHtml(item.start)} – ${escapeHtml(item.end)}</p><p class="mt-1 text-sm font-semibold">${escapeHtml(item.subject)}</p><p class="text-xs text-slate-500">${escapeHtml(item.room)}</p></div>`).join("") || '<p class="text-sm text-slate-500">No classes scheduled for today. Check the full timetable for the week.</p>'}</div>
+        <div class="mt-4 flex flex-wrap gap-2">${scoped.schedules.filter(item => item.day === new Intl.DateTimeFormat("en", { weekday: "long" }).format(new Date())).sort((a, b) => a.start.localeCompare(b.start)).map(item => `<div class="rounded-xl bg-slate-50 px-3 py-2.5"><p class="text-xs font-semibold text-indigo-700">${escapeHtml(item.start)} – ${escapeHtml(item.end)}</p><p class="mt-1 text-sm font-semibold">${escapeHtml(item.subject)}</p><p class="text-xs text-slate-500">${escapeHtml(item.room)}</p></div>`).join("") || '<p class="text-sm text-slate-500">No classes scheduled for today. Check the full timetable for the week.</p>'}</div>
       </section>`;
   }
 
@@ -469,28 +544,30 @@
   }
 
   function renderAnnouncements() {
+    const scopedAnnouncements = offeringScoped(state.announcements);
     const categories = ["All", "General", "Exam Notice", "Class Cancellation", "Deadline"];
-    const items = state.announcements.filter(item => !item.archived && (state.announcementFilter === "All" || item.category === state.announcementFilter)).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const items = scopedAnnouncements.filter(item => !item.archived && (state.announcementFilter === "All" || item.category === state.announcementFilter)).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     const canCreate = canManageAnnouncements();
     return `${pageIntro("Stay in the loop", "Campus announcements", "Official updates, class changes, and important deadlines from your professors and class officers.", canCreate ? button("＋ Create announcement", "toggle-announcement-form", "", "btn-primary") : "")}
       <section class="surface-card p-4 sm:p-5">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 class="font-bold">Latest updates</h3><p class="mt-1 text-xs text-slate-500">${items.length} ${items.length === 1 ? "announcement" : "announcements"}</p></div>
           <label class="flex items-center gap-2 text-xs font-medium text-slate-500">Filter <select id="announcement-filter" class="form-control w-auto py-2">${categories.map(category => `<option ${state.announcementFilter === category ? "selected" : ""}>${category}</option>`).join("")}</select></label>
         </div>
-        ${state.showAnnouncementForm ? announcementForm(state.announcements.find(item => item.id === state.editingAnnouncement)) : ""}
+        ${state.showAnnouncementForm ? announcementForm(scopedAnnouncements.find(item => item.id === state.editingAnnouncement)) : ""}
         <div class="mt-4 space-y-4">${items.length ? items.map(announcementCard).join("") : emptyState("No announcements here", "Try another filter or check back later.")}</div>
-        ${state.activeRole === "admin" ? `<details class="mt-6 border-t border-slate-100 pt-4"><summary class="cursor-pointer text-sm font-semibold text-slate-600">Archived announcements (${state.announcements.filter(item => item.archived).length})</summary><div class="mt-3 space-y-3">${state.announcements.filter(item => item.archived).map(item => `<div class="flex items-center justify-between rounded-xl bg-slate-50 p-3"><span class="text-sm font-medium">${escapeHtml(item.title)}</span>${button("Restore", "restore-announcement", `data-id="${item.id}"`)}</div>`).join("") || '<p class="text-xs text-slate-500">No archived announcements.</p>'}</div></details>` : ""}
+        ${state.activeRole === "admin" ? `<details class="mt-6 border-t border-slate-100 pt-4"><summary class="cursor-pointer text-sm font-semibold text-slate-600">Archived announcements (${scopedAnnouncements.filter(item => item.archived).length})</summary><div class="mt-3 space-y-3">${scopedAnnouncements.filter(item => item.archived).map(item => `<div class="flex items-center justify-between rounded-xl bg-slate-50 p-3"><span class="text-sm font-medium">${escapeHtml(item.title)}</span>${button("Restore", "restore-announcement", `data-id="${item.id}"`)}</div>`).join("") || '<p class="text-xs text-slate-500">No archived announcements.</p>'}</div></details>` : ""}
       </section>`;
   }
 
   function announcementForm(item = null) {
     const editing = Boolean(item);
+    const subject = item?.subject || currentOffering()?.subject || "";
     return `<form id="announcement-form" class="mt-5 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
       <div class="mb-4 flex items-center justify-between"><h4 class="font-bold">${editing ? "Edit announcement" : "New announcement"}</h4>${button("Cancel", "cancel-announcement-form")}</div>
       <input type="hidden" name="id" value="${editing ? escapeHtml(item.id) : ""}">
       <div class="grid gap-3 sm:grid-cols-2">
         ${field("Title", "title", item?.title, "text", true)}
-        ${field("Subject / course", "subject", item?.subject, "text", true)}
+        <label class="block text-xs font-semibold text-slate-600">Class offering<input class="form-control mt-1.5" name="subject" readonly required value="${escapeHtml(subject)}"></label>
         <label class="block text-xs font-semibold text-slate-600">Category<select name="category" class="form-control mt-1.5" required>${["General", "Exam Notice", "Class Cancellation", "Deadline"].map(value => `<option ${item?.category === value ? "selected" : ""}>${value}</option>`).join("")}</select></label>
         <label class="flex items-center gap-2 self-end pb-3 text-sm font-medium text-slate-700"><input type="checkbox" name="urgent" class="h-4 w-4 rounded border-slate-300 text-indigo-600" ${item?.urgent ? "checked" : ""}> Mark as urgent</label>
         <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required>${editing ? escapeHtml(item.content) : ""}</textarea></label>
@@ -502,7 +579,7 @@
   function announcementCard(item) {
     const acknowledged = item.acknowledgments.includes(activeUserId());
     const canEdit = canManageAnnouncements() && item.authorRole === state.activeRole || state.activeRole === "admin";
-    const totalStudents = state.studentCount;
+    const totalStudents = state.studentCounts[state.activeOfferingId] || 0;
     return `<article class="rounded-xl border ${item.urgent ? "border-rose-200" : "border-slate-200"} p-4 sm:p-5">
       <div class="flex flex-wrap items-center gap-2">${badge(item.category)}${item.urgent ? '<span class="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700">Urgent</span>' : ""}<span class="ml-auto text-xs text-slate-500">${relativeDate(item.createdAt)} · ${escapeHtml(formatTime(item.createdAt))}</span></div>
       <h3 class="mt-3 text-lg font-bold tracking-tight">${escapeHtml(item.title)}</h3><p class="mt-1 text-xs font-medium text-slate-500">${escapeHtml(item.subject)} <span class="px-1">·</span> Posted by ${escapeHtml(item.author)}</p>
@@ -518,27 +595,30 @@
   }
 
   function renderTimetable() {
+    const schedules = offeringScoped(state.schedules);
+    const history = offeringScoped(state.scheduleHistory);
     const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const canEdit = canManageSchedules();
-    const times = [...new Set(state.schedules.map(item => item.start))].sort();
+    const times = [...new Set(schedules.map(item => item.start))].sort();
     const actions = `<div class="flex flex-wrap gap-2">${canEdit ? button("＋ Add class", "toggle-schedule-form", "", "btn-primary") : ""}${bulkScheduleActions()}</div>`;
     return `${pageIntro("Plan your week", "Class schedule", "A clear view of your weekly classes, instructors, classrooms, and any recent changes.", actions)}
-      ${state.showScheduleForm ? scheduleForm(state.schedules.find(item => item.id === state.editingSchedule)) : ""}
+      ${state.showScheduleForm ? scheduleForm(schedules.find(item => item.id === state.editingSchedule)) : ""}
       <section class="surface-card overflow-hidden"><div class="overflow-x-auto"><table class="w-full min-w-[720px] border-collapse text-left"><thead><tr class="bg-slate-50"><th class="w-32 border-b border-slate-200 px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500">Day</th>${times.map(time => `<th class="border-b border-slate-200 px-4 py-3 text-xs font-bold text-slate-500">${escapeHtml(time)}</th>`).join("")}</tr></thead><tbody>${days.map(day => `<tr class="border-b border-slate-100 last:border-0"><th class="px-4 py-3 text-sm font-bold text-slate-700">${day}</th>${times.map(time => {
-        const matches = state.schedules.filter(item => item.day === day && item.start === time);
+        const matches = schedules.filter(item => item.day === day && item.start === time);
         return `<td class="min-w-44 px-2 py-2 align-top">${matches.map(item => `<div class="rounded-lg border border-indigo-100 bg-indigo-50/70 p-3"><p class="text-xs font-bold text-indigo-800">${escapeHtml(item.subject)}</p><p class="mt-1 text-[11px] text-slate-600">${escapeHtml(item.start)}–${escapeHtml(item.end)}</p><p class="mt-2 text-[11px] text-slate-600">${escapeHtml(item.instructor)}</p><p class="text-[11px] text-slate-500">${escapeHtml(item.room)}</p>${canEdit ? `<div class="mt-2 flex gap-1">${button("Edit", "edit-schedule", `data-id="${item.id}"`)}${button("Delete", "delete-schedule", `data-id="${item.id}"`, "btn-danger")}</div>` : ""}</div>`).join("")}</td>`;
       }).join("")}</tr>`).join("")}</tbody></table></div></section>
-      <section class="surface-card mt-6 p-5 sm:p-6"><div class="flex items-center justify-between"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-slate-500">Audit trail</p><h3 class="mt-1 text-lg font-bold">Schedule change history</h3></div><span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">${state.scheduleHistory.length} updates</span></div>
-        <div class="mt-4 divide-y divide-slate-100">${state.scheduleHistory.length ? state.scheduleHistory.slice(0, 8).map(item => `<div class="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between"><p class="text-sm font-medium text-slate-700">${escapeHtml(item.text)}</p><p class="text-xs text-slate-500">${escapeHtml(item.actor)} · ${formatDate(item.at, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p></div>`).join("") : emptyState("No changes yet", "Schedule updates will be recorded here.")}</div>
+      <section class="surface-card mt-6 p-5 sm:p-6"><div class="flex items-center justify-between"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-slate-500">Audit trail</p><h3 class="mt-1 text-lg font-bold">Schedule change history</h3></div><span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">${history.length} updates</span></div>
+        <div class="mt-4 divide-y divide-slate-100">${history.length ? history.slice(0, 8).map(item => `<div class="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between"><p class="text-sm font-medium text-slate-700">${escapeHtml(item.text)}</p><p class="text-xs text-slate-500">${escapeHtml(item.actor)} · ${formatDate(item.at, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p></div>`).join("") : emptyState("No changes yet", "Schedule updates will be recorded here.")}</div>
       </section>`;
   }
 
   function renderExamTimetable() {
-    const exams = state.events.filter(event => ["Examination", "Quiz"].includes(event.type)).sort((a, b) => new Date(a.date) - new Date(b.date));
+    const scopedEvents = offeringScoped(state.events);
+    const exams = scopedEvents.filter(event => ["Examination", "Quiz"].includes(event.type)).sort((a, b) => new Date(a.date) - new Date(b.date));
     const canEdit = canManageEvents();
     const actions = `<div class="flex flex-wrap gap-2">${canEdit ? button("＋ Add exam", "toggle-exam-form", "", "btn-primary") : ""}${bulkScheduleActions()}</div>`;
     return `${pageIntro("Assessment planning", "Exam timetable", "Check the date, start time, subject, and room for each exam or quiz. Unlike the weekly class schedule, every assessment shows its full calendar date.", actions)}
-      ${state.showExamForm ? eventForm(state.events.find(item => item.id === state.editingExam), true) : ""}
+      ${state.showExamForm ? eventForm(scopedEvents.find(item => item.id === state.editingExam), true) : ""}
       <section class="surface-card overflow-hidden">
         <div class="border-b border-slate-100 p-4 sm:px-5"><h3 class="font-bold">Exams & quizzes</h3><p class="mt-1 text-xs text-slate-500">${exams.length} scheduled assessments · sorted by date</p></div>
         ${exams.length ? `<div class="divide-y divide-slate-100">${exams.map(exam => {
@@ -553,9 +633,10 @@
   }
 
   function scheduleForm(item = null) {
+    const subject = item?.subject || currentOffering()?.subject || "";
     return `<form id="schedule-form" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">${item ? "Edit class" : "Add a class"}</h3>${button("Cancel", "cancel-schedule-form")}</div>
       <input type="hidden" name="id" value="${item ? escapeHtml(item.id) : ""}"><div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      <label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" required value="${item ? escapeHtml(item.subject) : ""}"></label>
+      <label class="block text-xs font-semibold text-slate-600">Class offering<input class="form-control mt-1.5" name="subject" readonly required value="${escapeHtml(subject)}"></label>
       <label class="block text-xs font-semibold text-slate-600">Instructor<input class="form-control mt-1.5" name="instructor" required value="${item ? escapeHtml(item.instructor) : ""}"></label>
       <label class="block text-xs font-semibold text-slate-600">Classroom<input class="form-control mt-1.5" name="room" required value="${item ? escapeHtml(item.room) : ""}"></label>
       <label class="block text-xs font-semibold text-slate-600">Day<select name="day" class="form-control mt-1.5">${["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map(day => `<option ${item?.day === day ? "selected" : ""}>${day}</option>`).join("")}</select></label>
@@ -565,10 +646,11 @@
   }
 
   function renderCalendar() {
+    const scopedEvents = offeringScoped(state.events);
     const canEdit = canManageEvents();
-    const events = [...state.events].sort((a, b) => new Date(a.date) - new Date(b.date));
+    const events = [...scopedEvents].sort((a, b) => new Date(a.date) - new Date(b.date));
     return `${pageIntro("Never miss a date", "Academic calendar", "Examinations, quizzes, project deadlines, consultations, and special class sessions in one chronological view.", canEdit ? button("＋ Add calendar item", "toggle-event-form", "", "btn-primary") : "")}
-      ${state.showEventForm ? eventForm(state.events.find(item => item.id === state.editingEvent)) : ""}
+      ${state.showEventForm ? eventForm(scopedEvents.find(item => item.id === state.editingEvent)) : ""}
       <section class="surface-card p-4 sm:p-6"><div class="mb-4 flex items-center justify-between"><div><h3 class="font-bold">Upcoming academic dates</h3><p class="mt-1 text-xs text-slate-500">${events.length} scheduled items</p></div></div>
         <div class="divide-y divide-slate-100">${events.length ? events.map(event => `<div class="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">${eventRow(event)}${canEdit ? `<div class="flex shrink-0 gap-2 sm:ml-2">${button("Edit", "edit-event", `data-id="${event.id}"`)}${button("Delete", "delete-event", `data-id="${event.id}"`, "btn-danger")}</div>` : ""}</div>`).join("") : emptyState("Nothing scheduled", "New academic events will appear here.")}</div>
       </section>`;
@@ -578,10 +660,11 @@
     const eventTypes = examOnly ? ["Examination", "Quiz"] : ["Quiz", "Examination", "Project Deadline", "Consultation", "Special Class"];
     const formId = examOnly ? "exam-event-form" : "event-form";
     const formTitle = examOnly ? "exam" : "calendar item";
+    const subject = item?.subject || currentOffering()?.subject || "";
     return `<form id="${formId}" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">${item ? `Edit ${formTitle}` : `Add ${formTitle}`}</h3>${button("Cancel", examOnly ? "cancel-exam-form" : "cancel-event-form")}</div>
       <input type="hidden" name="id" value="${item ? escapeHtml(item.id) : ""}"><div class="grid gap-3 sm:grid-cols-2">
       <label class="block text-xs font-semibold text-slate-600">Title<input class="form-control mt-1.5" name="title" required value="${item ? escapeHtml(item.title) : ""}"></label>
-      <label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" required value="${item ? escapeHtml(item.subject) : ""}"></label>
+      <label class="block text-xs font-semibold text-slate-600">Class offering<input class="form-control mt-1.5" name="subject" readonly required value="${escapeHtml(subject)}"></label>
       <label class="block text-xs font-semibold text-slate-600">Type<select name="type" class="form-control mt-1.5">${eventTypes.map(type => `<option ${item?.type === type ? "selected" : ""}>${type}</option>`).join("")}</select></label>
       <label class="block text-xs font-semibold text-slate-600">Date and time<input class="form-control mt-1.5" type="datetime-local" name="date" required value="${item ? escapeHtml(new Date(new Date(item.date).getTime() - new Date(item.date).getTimezoneOffset() * 60000).toISOString().slice(0, 16)) : ""}"></label>
       <label class="block text-xs font-semibold text-slate-600">Location<input class="form-control mt-1.5" name="location" required value="${item ? escapeHtml(item.location) : ""}"></label>
@@ -595,9 +678,31 @@
     return `${pageIntro("Administration", "User management", "Invite accounts, assign access, update names, or deactivate accounts here.", button("＋ Invite user", "toggle-user-form", "", "btn-primary"))}
       <div class="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">${counts.map(([role, count]) => `<div class="surface-card p-4"><p class="text-xs font-semibold uppercase tracking-wider text-slate-500">${roles[role].label}s</p><p class="mt-2 text-2xl font-bold">${count}</p><p class="text-xs text-slate-500">active accounts</p></div>`).join("")}</div>
       ${state.showUserForm ? userForm(state.users.find(item => item.id === state.editingUser)) : ""}
+      ${renderSectionsManagement()}
       <section class="surface-card mb-5 p-4 sm:p-5"><h3 class="font-bold">Issue a one-time role key</h3><p class="mt-1 text-xs text-slate-500">The key is shown only once. Share it securely with the intended account holder.</p><div class="mt-3 flex flex-wrap gap-2">${["professor", "officer", "admin"].map(role => button(`Generate ${roles[role].label} key`, "issue-role-key", `data-role="${role}"`)).join("")}</div><div id="issued-key-container" class="mt-3 hidden"><label class="block text-xs font-semibold text-slate-600">Copy this one-time key now<input id="issued-role-key" class="form-control mt-1.5 font-mono" readonly></label></div></section>
       <section class="surface-card overflow-hidden"><div class="border-b border-slate-100 p-4 sm:px-5"><h3 class="font-bold">Campus accounts</h3><p class="mt-1 text-xs text-slate-500">${users.length} accounts · ${users.filter(user => user.active).length} active</p></div>
       <div class="overflow-x-auto"><table class="w-full min-w-[720px] text-left"><thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th class="px-5 py-3 font-semibold">User</th><th class="px-5 py-3 font-semibold">Role</th><th class="px-5 py-3 font-semibold">Status</th><th class="px-5 py-3 text-right font-semibold">Actions</th></tr></thead><tbody class="divide-y divide-slate-100">${users.map(user => `<tr class="${user.active ? "" : "opacity-55"}"><td class="px-5 py-4"><p class="text-sm font-semibold">${escapeHtml(user.name)}</p><p class="mt-0.5 text-xs text-slate-500">${escapeHtml(user.email)}</p></td><td class="px-5 py-4"><select class="form-control w-auto min-w-36 py-2 text-xs" data-user-role="${escapeHtml(user.id)}" aria-label="Role for ${escapeHtml(user.name)}">${Object.entries(roles).map(([role, info]) => `<option value="${role}" ${user.role === role ? "selected" : ""}>${info.label}</option>`).join("")}</select></td><td class="px-5 py-4"><span class="inline-flex items-center gap-1.5 text-xs font-medium ${user.active ? "text-emerald-700" : "text-slate-500"}"><span class="h-1.5 w-1.5 rounded-full ${user.active ? "bg-emerald-500" : "bg-slate-400"}"></span>${user.active ? "Active" : "Deactivated"}</span></td><td class="px-5 py-4"><div class="flex justify-end gap-2">${button("Edit", "edit-user", `data-id="${user.id}"`)}${button(user.active ? "Deactivate" : "Reactivate", "toggle-user-active", `data-id="${user.id}"`, user.active ? "btn-danger" : "btn-secondary")}</div></td></tr>`).join("")}</tbody></table></div></section>`;
+  }
+
+  function renderSectionsManagement() {
+    const activeUsers = state.users.filter(user => user.active);
+    const sections = state.sections;
+    return `<section class="surface-card mb-5 p-4 sm:p-5">
+      <div><p class="text-xs font-bold uppercase tracking-wider text-indigo-600">Class structure</p><h3 class="mt-1 text-lg font-bold">Sections, blocks & class offerings</h3><p class="mt-1 text-xs leading-5 text-slate-500">A section is a student cohort. Each subject taught to that cohort is a class offering with its own schedule, assessments, and announcements.</p></div>
+      <form id="section-form" class="mt-4 flex flex-wrap items-end gap-3"><label class="block min-w-56 flex-1 text-xs font-semibold text-slate-600">New section/block name<input class="form-control mt-1.5" name="name" maxlength="80" placeholder="BSIT 2A" required></label><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white">Create section & key</button></form>
+      <div class="mt-4 space-y-4">${sections.length ? sections.map(section => {
+        const offerings = state.offerings.filter(item => item.section_id === section.id);
+        return `<article class="rounded-xl border border-slate-200 p-4"><div class="flex flex-wrap items-center justify-between gap-3"><div><h4 class="font-bold">${escapeHtml(section.name)}</h4><p class="mt-1 text-xs text-slate-500">${offerings.length} class offering(s) · ${section.active ? "Active" : "Inactive"}</p></div><div class="flex gap-2">${section.active ? button("Rotate join key", "rotate-section-key", `data-id="${section.id}"`) : ""}${button(section.active ? "Deactivate" : "Reactivate", "toggle-section-active", `data-id="${section.id}"`, section.active ? "btn-danger" : "btn-secondary")}</div></div>
+          <form id="offering-form-${section.id}" data-section-id="${section.id}" class="mt-4 grid gap-2 sm:grid-cols-[1fr_12rem_auto]"><label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" maxlength="120" placeholder="Data Structures" required></label><label class="block text-xs font-semibold text-slate-600">Course code (optional)<input class="form-control mt-1.5" name="courseCode" maxlength="32" placeholder="CS201"></label><button class="self-end rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" ${section.active ? "" : "disabled"}>Add offering</button></form>
+          <div class="mt-3 space-y-3">${offerings.map(offering => `<div class="rounded-lg bg-slate-50 p-3"><div class="flex flex-wrap items-center justify-between gap-2"><p class="text-sm font-semibold">${escapeHtml(offering.subject)}${offering.course_code ? ` · ${escapeHtml(offering.course_code)}` : ""}</p><span class="text-xs text-slate-500">${offering.active ? "Active" : "Inactive"}</span></div>${["professor", "officer"].map(role => {
+          const assigned = state.assignments.filter(item => item.offering_id === offering.id && item.staff_role === role);
+          const options = activeUsers.filter(user => user.role === role);
+          return `<form id="staff-assignment-form-${offering.id}-${role}" data-offering-id="${offering.id}" data-staff-role="${role}" class="mt-2 flex flex-wrap items-center gap-2"><span class="w-24 text-xs font-medium text-slate-600">${roles[role].label}</span><select class="form-control min-w-48 flex-1 py-2 text-xs" name="profileId" required><option value="">Assign ${roles[role].label.toLowerCase()}</option>${options.map(user => `<option value="${user.id}">${escapeHtml(user.name)} (${escapeHtml(user.email)})</option>`).join("")}</select><button class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Assign</button>${assigned.map(item => { const person = activeUsers.find(user => user.id === item.profile_id); return person ? `<span class="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-xs text-slate-600">${escapeHtml(person.name)}${button("×", "remove-offering-staff", `data-offering-id="${offering.id}" data-profile-id="${person.id}" data-role="${role}"`, "btn-danger")}</span>` : ""; }).join("")}</form>`;
+        }).join("")}</div>`).join("") || '<p class="mt-3 text-xs text-slate-500">No offerings created for this section yet.</p>'}</div>
+        </article>`;
+      }).join("") : emptyState("No sections created", "Create a section/block, then add its subject offerings and assign staff.")}</div>
+      <div id="section-key-container" class="mt-4 hidden rounded-xl border border-emerald-200 bg-emerald-50 p-4"><p class="text-xs font-semibold text-emerald-800">Share this reusable section key with students in this block</p><input id="section-key-output" class="form-control mt-2 font-mono" readonly></div>
+    </section>`;
   }
 
   function renderSettings() {
@@ -697,6 +802,7 @@
   function closeModals() {
     authModal.hidden = true;
     accessModal.hidden = true;
+    sectionModal.hidden = true;
   }
 
   async function bootstrapSession(authUser) {
@@ -731,7 +837,17 @@
       state.schedules = data.schedules;
       state.events = data.events;
       state.scheduleHistory = data.scheduleHistory;
-      state.studentCount = data.studentCount;
+      state.membership = data.membership;
+      state.sections = data.sections;
+      state.offerings = data.offerings;
+      state.assignments = data.assignments;
+      state.studentCounts = data.studentCounts;
+      let preferenceOffering = null;
+      try { preferenceOffering = sessionStorage.getItem("campushub-active-offering"); }
+      catch (error) { console.error("CampusHub could not read the selected class preference.", error); }
+      state.activeOfferingId = data.offerings.some(item => item.id === state.activeOfferingId)
+        ? state.activeOfferingId
+        : (data.offerings.find(item => item.id === preferenceOffering)?.id || data.offerings[0]?.id || null);
       dataReady = true;
       render();
       if (!realtimeChannel) {
@@ -746,7 +862,14 @@
               state.schedules = latest.schedules;
               state.events = latest.events;
               state.scheduleHistory = latest.scheduleHistory;
-              state.studentCount = latest.studentCount;
+              state.membership = latest.membership;
+              state.sections = latest.sections;
+              state.offerings = latest.offerings;
+              state.assignments = latest.assignments;
+              state.studentCounts = latest.studentCounts;
+              if (!latest.offerings.some(item => item.id === state.activeOfferingId)) {
+                state.activeOfferingId = latest.offerings[0]?.id || null;
+              }
               if (state.activeRole === "admin") {
                 state.users = [...latest.users.filter(user => user.id !== latest.user.id), latest.user];
               }
@@ -782,11 +905,49 @@
   document.querySelectorAll("[data-close-modal]").forEach(button => {
     button.addEventListener("click", closeModals);
   });
+  document.getElementById("join-section-button").addEventListener("click", () => {
+    clearFormMessage(document.getElementById("section-message"));
+    sectionModal.hidden = false;
+    document.querySelector('#section-join-form [name="key"]').focus();
+  });
+
+  document.getElementById("active-offering-select").addEventListener("change", event => {
+    state.activeOfferingId = event.target.value;
+    try { sessionStorage.setItem("campushub-active-offering", state.activeOfferingId); }
+    catch (error) { console.error("CampusHub could not save the selected class preference.", error); }
+    render();
+  });
+
+  sectionModal.addEventListener("submit", async event => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || form.id !== "section-join-form") return;
+    event.preventDefault();
+    if (!requireRole(["student"])) return;
+    const submitButton = form.querySelector("button");
+    submitButton.disabled = true;
+    try {
+      const joined = await window.CampusHubStore.joinSection(new FormData(form).get("key"));
+      state.membership = { section_id: joined.id };
+      state.activeOfferingId = null;
+      dataReady = false;
+      await bootstrapSession({ id: state.currentUserId });
+      form.reset();
+      closeModals();
+      showToast(`You joined ${joined.name}.`);
+    } catch (error) {
+      setFormMessage(document.getElementById("section-message"), error.message || "Could not join that section.", true);
+    } finally {
+      submitButton.disabled = false;
+    }
+  });
 
   [authModal, accessModal].forEach(modal => {
     modal.addEventListener("click", event => {
       if (event.target === modal) closeModals();
     });
+  });
+  sectionModal.addEventListener("click", event => {
+    if (event.target === sectionModal) closeModals();
   });
 
   document.addEventListener("keydown", event => {
@@ -911,7 +1072,15 @@
   }
 
   function recordScheduleChange(description) {
-    state.scheduleHistory.unshift({ id: generateId("hist"), text: description, actor: currentUser()?.name || roles[state.activeRole].name, at: new Date().toISOString() });
+    const offering = currentOffering();
+    state.scheduleHistory.unshift({
+      id: generateId("hist"),
+      text: description,
+      actor: currentUser()?.name || roles[state.activeRole].name,
+      at: new Date().toISOString(),
+      offeringId: offering?.id,
+      sectionId: offering?.section_id
+    });
   }
 
   async function setUserActive(user, active) {
@@ -967,6 +1136,23 @@
     }
   }
 
+  async function refreshSharedData() {
+    const userId = state.currentUserId;
+    if (!userId) return;
+    dataReady = false;
+    await bootstrapSession({ id: userId });
+  }
+
+  function showSectionKey(key) {
+    const container = document.getElementById("section-key-container");
+    const input = document.getElementById("section-key-output");
+    if (!container || !input) return;
+    input.value = key;
+    container.classList.remove("hidden");
+    input.focus();
+    input.select();
+  }
+
   nav.addEventListener("click", event => {
     const target = event.target.closest("[data-tab]");
     if (!target) return;
@@ -992,7 +1178,7 @@
     }
   });
 
-  content.addEventListener("click", event => {
+  content.addEventListener("click", async event => {
     const control = event.target.closest("[data-action]");
     if (!control) return;
     const { action, id, target } = control.dataset;
@@ -1009,11 +1195,53 @@
       case "open-import":
         openImportDialog();
         break;
+      case "open-section-join":
+        if (!requireRole(["student"])) return;
+        clearFormMessage(document.getElementById("section-message"));
+        sectionModal.hidden = false;
+        document.querySelector('#section-join-form [name="key"]').focus();
+        break;
       case "export-schedules":
         exportScheduleData();
         break;
       case "issue-role-key":
         generateRoleKey(control.dataset.role);
+        break;
+      case "rotate-section-key":
+        if (!requireRole(["admin"])) return;
+        try {
+          const key = await window.CampusHubStore.rotateSectionKey(id);
+          showSectionKey(key);
+          showToast("Section key rotated. The previous key is no longer valid; copy this key now.");
+        } catch (error) {
+          console.error("CampusHub could not rotate the section key.", error);
+          showToast(error.message || "The section key could not be rotated.", "error");
+        }
+        break;
+      case "toggle-section-active": {
+        if (!requireRole(["admin"])) return;
+        const section = state.sections.find(item => item.id === id);
+        if (!section) return;
+        try {
+          await window.CampusHubStore.setSectionActive(id, !section.active);
+          await refreshSharedData();
+          showToast(`Section ${section.active ? "deactivated" : "reactivated"}.`);
+        } catch (error) {
+          console.error("CampusHub could not update section status.", error);
+          showToast(error.message || "Section status could not be updated.", "error");
+        }
+        break;
+      }
+      case "remove-offering-staff":
+        if (!requireRole(["admin"])) return;
+        try {
+          await window.CampusHubStore.assignStaff(control.dataset.offeringId, control.dataset.profileId, control.dataset.role, false);
+          await refreshSharedData();
+          showToast("Staff assignment removed.");
+        } catch (error) {
+          console.error("CampusHub could not remove the staff assignment.", error);
+          showToast(error.message || "Staff assignment could not be removed.", "error");
+        }
         break;
       case "toggle-announcement-form":
         if (!requireRole(["professor", "officer", "admin"])) return;
@@ -1026,21 +1254,25 @@
       case "edit-announcement":
         if (!requireRole(["professor", "officer", "admin"])) return;
         if (!announcement || !(state.activeRole === "admin" || announcement.authorRole === state.activeRole)) return showToast("You can only edit announcements posted by your role.", "error");
+        if (announcement.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this announcement.", "error");
         state.editingAnnouncement = id; state.showAnnouncementForm = true; render();
         break;
       case "archive-announcement":
         if (!requireRole(["professor", "officer", "admin"])) return;
         if (!announcement || !(state.activeRole === "admin" || announcement.authorRole === state.activeRole)) return showToast("You can only archive announcements posted by your role.", "error");
+        if (announcement.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this announcement.", "error");
         announcement.archived = true; saveState(); render(); showToast("Announcement archived.");
         break;
       case "restore-announcement":
         if (!requireRole(["admin"])) return;
         if (!announcement) return;
+        if (announcement.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this announcement.", "error");
         announcement.archived = false; saveState(); render(); showToast("Announcement restored.");
         break;
       case "delete-announcement":
         if (!requireRole(["professor", "officer", "admin"])) return;
         if (!announcement || !(state.activeRole === "admin" || announcement.authorRole === state.activeRole)) return showToast("You can only delete announcements posted by your role.", "error");
+        if (announcement.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this announcement.", "error");
         if (confirm("Delete this announcement permanently?")) {
           state.announcements = state.announcements.filter(item => item.id !== id); saveState(); render(); showToast("Announcement deleted.");
         }
@@ -1057,10 +1289,12 @@
         break;
       case "edit-schedule":
         if (!requireRole(["professor", "officer", "admin"])) return;
-        if (schedule) { state.editingSchedule = id; state.showScheduleForm = true; render(); }
+        if (schedule?.offeringId === state.activeOfferingId) { state.editingSchedule = id; state.showScheduleForm = true; render(); }
+        else if (schedule) showToast("Select the class offering that contains this schedule.", "error");
         break;
       case "delete-schedule":
         if (!requireRole(["professor", "officer", "admin"])) return;
+        if (schedule?.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this schedule.", "error");
         if (schedule && confirm(`Remove ${schedule.subject} from the timetable?`)) {
           recordScheduleChange(`${schedule.subject} removed from ${schedule.day} timetable`);
           state.schedules = state.schedules.filter(item => item.id !== id); saveState(); render(); showToast("Class removed from timetable.");
@@ -1079,12 +1313,14 @@
         break;
       case "edit-exam":
         if (!requireRole(["professor", "admin"])) return;
+        if (calendarEvent?.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this assessment.", "error");
         if (calendarEvent && ["Examination", "Quiz"].includes(calendarEvent.type)) {
           state.editingExam = id; state.showExamForm = true; render();
         }
         break;
       case "delete-exam":
         if (!requireRole(["professor", "admin"])) return;
+        if (calendarEvent?.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this assessment.", "error");
         if (calendarEvent && ["Examination", "Quiz"].includes(calendarEvent.type) && confirm(`Remove "${calendarEvent.title}" from the exam timetable?`)) {
           state.events = state.events.filter(item => item.id !== id); saveState(); render(); showToast("Assessment removed from the exam timetable.");
         }
@@ -1094,10 +1330,12 @@
         break;
       case "edit-event":
         if (!requireRole(["professor", "admin"])) return;
+        if (calendarEvent?.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this calendar item.", "error");
         if (calendarEvent) { state.editingEvent = id; state.showEventForm = true; render(); }
         break;
       case "delete-event":
         if (!requireRole(["professor", "admin"])) return;
+        if (calendarEvent?.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this calendar item.", "error");
         if (calendarEvent && confirm(`Delete "${calendarEvent.title}" from the calendar?`)) {
           state.events = state.events.filter(item => item.id !== id); saveState(); render(); showToast("Calendar item deleted.");
         }
@@ -1145,18 +1383,54 @@
       }
       return;
     }
-    if (!["announcement-form", "schedule-form", "event-form", "exam-event-form", "user-form"].includes(formId)) return;
+    const offeringForm = formId?.startsWith("offering-form-");
+    const staffForm = formId?.startsWith("staff-assignment-form-");
+    if (!["announcement-form", "schedule-form", "event-form", "exam-event-form", "user-form", "section-form"].includes(formId) && !offeringForm && !staffForm) return;
     event.preventDefault();
     const values = formValues(form);
-    if (formId === "announcement-form") {
+    if (formId === "section-form") {
+      if (!requireRole(["admin"])) return;
+      try {
+        const section = await window.CampusHubStore.createSection(values.name.trim());
+        await refreshSharedData();
+        showSectionKey(section.join_key);
+        showToast(`${section.name} was created. Copy its reusable join key now.`);
+      } catch (error) {
+        console.error("CampusHub could not create the section.", error);
+        showToast(error.message || "Section could not be created.", "error");
+      }
+    } else if (offeringForm) {
+      if (!requireRole(["admin"])) return;
+      try {
+        await window.CampusHubStore.createOffering(form.dataset.sectionId, values.subject.trim(), values.courseCode.trim());
+        await refreshSharedData();
+        showToast(`${values.subject.trim()} was added as a class offering.`);
+      } catch (error) {
+        console.error("CampusHub could not create the class offering.", error);
+        showToast(error.message || "Class offering could not be created.", "error");
+      }
+    } else if (staffForm) {
+      if (!requireRole(["admin"])) return;
+      try {
+        await window.CampusHubStore.assignStaff(form.dataset.offeringId, values.profileId, form.dataset.staffRole, true);
+        await refreshSharedData();
+        showToast(`${roles[form.dataset.staffRole].label} assigned to the class offering.`);
+      } catch (error) {
+        console.error("CampusHub could not assign staff to the class offering.", error);
+        showToast(error.message || "Staff assignment could not be completed.", "error");
+      }
+    } else if (formId === "announcement-form") {
       if (!requireRole(["professor", "officer", "admin"])) return;
       if (values.id) {
         const item = state.announcements.find(entry => entry.id === values.id);
         if (!item || !(state.activeRole === "admin" || item.authorRole === state.activeRole)) return showToast("You cannot edit this announcement.", "error");
+        if (item.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this announcement.", "error");
         Object.assign(item, { title: values.title.trim(), subject: values.subject.trim(), category: values.category, content: values.content.trim(), urgent: form.elements.urgent.checked });
         showToast("Announcement updated.");
       } else {
-        state.announcements.unshift({ id: generateId("ann"), title: values.title.trim(), subject: values.subject.trim(), category: values.category, content: values.content.trim(), urgent: form.elements.urgent.checked, author: currentUser()?.name || roles[state.activeRole].name, authorRole: state.activeRole, createdAt: new Date().toISOString(), archived: false, acknowledgments: [] });
+        const offering = currentOffering();
+        if (!offering) return showToast("Select an assigned class before publishing.", "error");
+        state.announcements.unshift({ id: generateId("ann"), title: values.title.trim(), subject: values.subject.trim(), category: values.category, content: values.content.trim(), urgent: form.elements.urgent.checked, author: currentUser()?.name || roles[state.activeRole].name, authorRole: state.activeRole, createdAt: new Date().toISOString(), archived: false, acknowledgments: [], offeringId: offering.id, sectionId: offering.section_id });
         showToast("Announcement published.");
       }
       state.showAnnouncementForm = false; state.editingAnnouncement = null; saveState(); render();
@@ -1165,11 +1439,14 @@
       if (values.start >= values.end) return showToast("End time must be later than start time.", "error");
       const previous = values.id ? state.schedules.find(item => item.id === values.id) : null;
       if (previous) {
+        if (previous.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this schedule.", "error");
         Object.assign(previous, { day: values.day, start: values.start, end: values.end, subject: values.subject.trim(), instructor: values.instructor.trim(), room: values.room.trim() });
         recordScheduleChange(`${previous.subject} updated: ${previous.day}, ${previous.start}–${previous.end}, ${previous.room}`);
         showToast("Timetable updated.");
       } else {
-        const created = { id: generateId("sch"), day: values.day, start: values.start, end: values.end, subject: values.subject.trim(), instructor: values.instructor.trim(), room: values.room.trim() };
+        const offering = currentOffering();
+        if (!offering) return showToast("Select an assigned class before editing the timetable.", "error");
+        const created = { id: generateId("sch"), day: values.day, start: values.start, end: values.end, subject: values.subject.trim(), instructor: values.instructor.trim(), room: values.room.trim(), offeringId: offering.id, sectionId: offering.section_id };
         state.schedules.push(created); recordScheduleChange(`${created.subject} added to ${created.day}, ${created.start}–${created.end}`);
         showToast("Class added to timetable.");
       }
@@ -1181,8 +1458,16 @@
       if (Number.isNaN(date.getTime())) return showToast("Enter a valid date and time.", "error");
       const update = { title: values.title.trim(), type: values.type, subject: values.subject.trim(), date: date.toISOString(), location: values.location.trim(), details: values.details.trim() };
       const existing = values.id ? state.events.find(item => item.id === values.id) : null;
-      if (existing) { Object.assign(existing, update); showToast("Calendar item updated."); }
-      else { state.events.push({ id: generateId("evt"), ...update }); showToast("Calendar item added."); }
+      if (existing) {
+        if (existing.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this calendar item.", "error");
+        Object.assign(existing, update); showToast("Calendar item updated.");
+      }
+      else {
+        const offering = currentOffering();
+        if (!offering) return showToast("Select an assigned class before adding an academic date.", "error");
+        state.events.push({ id: generateId("evt"), ...update, offeringId: offering.id, sectionId: offering.section_id });
+        showToast("Calendar item added.");
+      }
       if (formId === "exam-event-form") { state.showExamForm = false; state.editingExam = null; }
       else { state.showEventForm = false; state.editingEvent = null; }
       saveState(); render();

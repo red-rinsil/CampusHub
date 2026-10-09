@@ -46,15 +46,25 @@
       throw new Error("Your sign-in exists, but its CampusHub profile is missing. Run the profile repair SQL in README.md, then sign out and back in.");
     }
     if (!ownProfile.active) throw new Error("Your CampusHub account has been deactivated. Contact an administrator.");
-    const [announcements, schedules, events, scheduleHistory, acknowledgments, profiles, studentCount] = await Promise.all([
+    const [announcements, schedules, events, scheduleHistory, acknowledgments, profiles, membership, sections] = await Promise.all([
       fetchRows(tables.announcements),
       fetchRows(tables.schedules),
       fetchRows(tables.events),
       fetchRows(tables.scheduleHistory),
       unwrap(await client.from("announcement_acknowledgments").select("announcement_id,user_id")),
       isAdmin || ownProfile.role === "admin" ? fetchRows("campus_profiles") : Promise.resolve([]),
-      unwrap(await client.rpc("active_campus_student_count"))
+      unwrap(await client.from("section_memberships").select("section_id").eq("profile_id", userId).maybeSingle()),
+      fetchRows("campus_sections")
     ]);
+    const offerings = unwrap(await client.from("class_offerings").select("id,section_id,subject,course_code,active"));
+    const offeringIds = offerings.map(offering => offering.id);
+    const assignments = offeringIds.length
+      ? unwrap(await client.from("offering_staff").select("offering_id,profile_id,staff_role").in("offering_id", offeringIds))
+      : [];
+    const studentCounts = await Promise.all(offerings.map(async offering => [
+      offering.id,
+      unwrap(await client.rpc("active_offering_student_count", { p_offering_id: offering.id }))
+    ]));
     const acknowledgmentIds = new Map();
     acknowledgments.forEach(item => {
       if (!acknowledgmentIds.has(item.announcement_id)) acknowledgmentIds.set(item.announcement_id, []);
@@ -75,17 +85,21 @@
         role: profile.role,
         active: profile.active
       })) : [],
-      announcements: announcements.map(row => ({ ...row.payload, archived: row.archived, acknowledgments: acknowledgmentIds.get(row.id) || [] })),
-      schedules: schedules.map(row => row.payload),
-      events: events.map(row => row.payload),
-      scheduleHistory: scheduleHistory.map(row => row.payload),
-      studentCount
+      announcements: announcements.map(row => ({ ...row.payload, offeringId: row.offering_id, sectionId: row.section_id, archived: row.archived, acknowledgments: acknowledgmentIds.get(row.id) || [] })),
+      schedules: schedules.map(row => ({ ...row.payload, offeringId: row.offering_id, sectionId: row.section_id })),
+      events: events.map(row => ({ ...row.payload, offeringId: row.offering_id, sectionId: row.section_id })),
+      scheduleHistory: scheduleHistory.map(row => ({ ...row.payload, offeringId: row.offering_id, sectionId: row.section_id })),
+      membership,
+      sections,
+      offerings,
+      assignments,
+      studentCounts: Object.fromEntries(studentCounts)
     };
     lastSynced = structuredClone({
-      announcements: announcements.map(({ id, author_role, archived, payload }) => ({ id, payload, author_role, archived })),
-      schedules: schedules.map(({ id, payload }) => ({ id, payload })),
-      events: events.map(({ id, payload }) => ({ id, payload })),
-      scheduleHistory: scheduleHistory.map(({ id, payload }) => ({ id, payload }))
+      announcements: announcements.map(({ id, section_id, offering_id, author_role, archived, payload }) => ({ id, section_id, offering_id, payload, author_role, archived })),
+      schedules: schedules.map(({ id, section_id, offering_id, payload }) => ({ id, section_id, offering_id, payload })),
+      events: events.map(({ id, section_id, offering_id, payload }) => ({ id, section_id, offering_id, payload })),
+      scheduleHistory: scheduleHistory.map(({ id, section_id, offering_id, payload }) => ({ id, section_id, offering_id, payload }))
     });
     return values;
   }
@@ -93,7 +107,7 @@
   function rowsFor(tableName, items) {
     return items.map(item => {
       const payload = tableName === tables.announcements ? withoutAcknowledgments(item) : item;
-      const row = { id: item.id, payload };
+      const row = { id: item.id, section_id: item.sectionId, offering_id: item.offeringId, payload };
       if (tableName === tables.announcements) {
         row.author_role = item.authorRole;
         row.archived = Boolean(item.archived);
@@ -159,6 +173,48 @@
     return unwrap(await client.rpc("issue_campus_role_key", { p_role: role }));
   }
 
+  async function createSection(name) {
+    assertReady();
+    return unwrap(await client.rpc("create_campus_section", { p_name: name }));
+  }
+
+  async function rotateSectionKey(sectionId) {
+    assertReady();
+    return unwrap(await client.rpc("rotate_campus_section_key", { p_section_id: sectionId }));
+  }
+
+  async function joinSection(key) {
+    assertReady();
+    return unwrap(await client.rpc("join_campus_section", { p_key: key }));
+  }
+
+  async function createOffering(sectionId, subject, courseCode) {
+    assertReady();
+    return unwrap(await client.rpc("create_class_offering", {
+      p_section_id: sectionId,
+      p_subject: subject,
+      p_course_code: courseCode || ""
+    }));
+  }
+
+  async function assignStaff(offeringId, profileId, role, assigned) {
+    assertReady();
+    return unwrap(await client.rpc("assign_offering_staff", {
+      p_offering_id: offeringId,
+      p_profile_id: profileId,
+      p_staff_role: role,
+      p_assigned: assigned
+    }));
+  }
+
+  async function setSectionActive(sectionId, active) {
+    assertReady();
+    return unwrap(await client.rpc("set_campus_section_active", {
+      p_section_id: sectionId,
+      p_active: active
+    }));
+  }
+
   async function inviteUser(name, email) {
     assertReady();
     return unwrap(await client.functions.invoke("admin-create-user", {
@@ -197,6 +253,12 @@
     acknowledge,
     updateProfile,
     issueRoleKey,
+    createSection,
+    rotateSectionKey,
+    joinSection,
+    createOffering,
+    assignStaff,
+    setSectionActive,
     inviteUser,
     changePassword,
     watch
