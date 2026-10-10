@@ -709,7 +709,7 @@
           .map(item => activeUsers.find(user => user.id === item.profile_id && user.role === "student"))
           .filter(Boolean);
         const officerOptions = activeUsers.filter(user => user.role === "officer");
-        return `<article class="rounded-xl border border-slate-200 p-4"><div class="flex flex-wrap items-center justify-between gap-3"><div><h4 class="font-bold">${escapeHtml(section.name)}</h4><p class="mt-1 text-xs text-slate-500">${offerings.length} class offering(s) · ${sectionStudents.length} active student(s) · ${section.active ? "Active" : "Inactive (archived)"}</p></div><div class="flex gap-2">${section.active ? button("Rotate join key", "rotate-section-key", `data-id="${section.id}"`) : ""}${button(section.active ? "Archive section" : "Restore section", "toggle-section-active", `data-id="${section.id}"`, section.active ? "btn-danger" : "btn-secondary")}</div></div>
+        return `<article class="rounded-xl border border-slate-200 p-4"><div class="flex flex-wrap items-center justify-between gap-3"><div><h4 class="font-bold">${escapeHtml(section.name)}</h4><p class="mt-1 text-xs text-slate-500">${offerings.length} class offering(s) · ${sectionStudents.length} active student(s) · ${section.active ? "Active" : "Inactive (archived)"}</p></div><div class="flex flex-wrap gap-2">${section.active ? button("Rotate join key", "rotate-section-key", `data-id="${section.id}"`) : ""}${button(section.active ? "Archive section" : "Restore section", "toggle-section-active", `data-id="${section.id}"`, section.active ? "btn-danger" : "btn-secondary")}${button("Delete permanently", "delete-section", `data-id="${section.id}"`, "btn-danger")}</div></div>
           <form id="section-edit-form-${section.id}" data-section-id="${section.id}" class="mt-3 flex flex-wrap items-end gap-2"><label class="min-w-48 flex-1 text-xs font-semibold text-slate-600">Edit section / block name<input class="form-control mt-1 py-2 text-sm" name="name" maxlength="80" required value="${escapeHtml(section.name)}"></label><button class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Save name</button></form>
           <form id="section-officer-form-${section.id}" data-section-id="${section.id}" class="mt-4 flex flex-wrap items-center gap-2"><label class="min-w-48 flex-1 text-xs font-semibold text-slate-600">Section class officer<select class="form-control mt-1 py-2 text-xs" name="profileId" required><option value="">Select one class officer</option>${officerOptions.map(person => `<option value="${person.id}" ${person.id === officer?.id ? "selected" : ""}>${escapeHtml(person.name)} (${escapeHtml(person.email)})</option>`).join("")}</select></label><button class="mt-4 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Assign / replace officer</button>${officer ? `${button("Remove officer", "clear-section-officer", `data-id="${section.id}"`, "btn-danger")}<span class="text-xs text-slate-500">${officer.active ? "" : "Assigned account is inactive"}</span>` : ""}</form>
           <form id="offering-form-${section.id}" data-section-id="${section.id}" class="mt-4 grid gap-2 sm:grid-cols-[1fr_12rem_auto]"><label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" maxlength="120" placeholder="Data Structures" required></label><label class="block text-xs font-semibold text-slate-600">Course code (optional)<input class="form-control mt-1.5" name="courseCode" maxlength="32" placeholder="CS201"></label><button class="self-end rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" ${section.active ? "" : "disabled"}>Add offering</button></form>
@@ -718,7 +718,7 @@
             const enrolledIds = new Set(state.enrollments.filter(item => item.offering_id === offering.id).map(item => item.profile_id));
             const candidates = sectionStudents.filter(person => !enrolledIds.has(person.id));
             const enrolled = sectionStudents.filter(person => enrolledIds.has(person.id));
-            return `<div class="rounded-lg bg-slate-50 p-3"><div class="flex flex-wrap items-center justify-between gap-2"><p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Class / subject · ${offering.active ? "Active" : "Inactive (archived)"}</p>${button(offering.active ? "Archive class" : "Restore class", "toggle-offering-active", `data-id="${offering.id}"`, offering.active ? "btn-danger" : "btn-secondary")}</div>
+            return `<div class="rounded-lg bg-slate-50 p-3"><div class="flex flex-wrap items-center justify-between gap-2"><p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Class / subject · ${offering.active ? "Active" : "Inactive (archived)"}</p><div class="flex flex-wrap gap-2">${button(offering.active ? "Archive class" : "Restore class", "toggle-offering-active", `data-id="${offering.id}"`, offering.active ? "btn-danger" : "btn-secondary")}${button("Delete permanently", "delete-offering", `data-id="${offering.id}"`, "btn-danger")}</div></div>
               <form id="offering-edit-form-${offering.id}" data-offering-id="${offering.id}" class="mt-2 grid gap-2 sm:grid-cols-[1fr_12rem_auto]"><label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1 py-2 text-sm" name="subject" maxlength="120" required value="${escapeHtml(offering.subject)}"></label><label class="block text-xs font-semibold text-slate-600">Course code<input class="form-control mt-1 py-2 text-sm" name="courseCode" maxlength="32" value="${escapeHtml(offering.course_code || "")}"></label><button class="self-end rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Save class</button></form>
               <form id="staff-assignment-form-${offering.id}-professor" data-offering-id="${offering.id}" data-staff-role="professor" class="mt-2 flex flex-wrap items-center gap-2"><span class="w-24 text-xs font-medium text-slate-600">Professor</span><select class="form-control min-w-48 flex-1 py-2 text-xs" name="profileId" required><option value="">Assign professor</option>${activeUsers.filter(person => person.role === "professor").map(person => `<option value="${person.id}">${escapeHtml(person.name)} (${escapeHtml(person.email)})</option>`).join("")}</select><button class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Assign</button>${assigned.map(item => { const person = activeUsers.find(user => user.id === item.profile_id); return person ? `<span class="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-xs text-slate-600">${escapeHtml(person.name)}${button("×", "remove-offering-staff", `data-offering-id="${offering.id}" data-profile-id="${person.id}" data-role="professor"`, "btn-danger")}</span>` : ""; }).join("")}</form>
               <div class="mt-3 border-t border-slate-200 pt-3"><p class="text-xs font-semibold text-slate-700">Enrolled students (${enrolled.length})</p><form id="enrollment-form-${offering.id}" data-offering-id="${offering.id}" class="mt-2 flex flex-wrap items-center gap-2"><select class="form-control min-w-48 flex-1 py-2 text-xs" name="profileId" ${candidates.length && offering.active ? "required" : "disabled"}><option value="">${offering.active ? (candidates.length ? "Add a student taking this subject" : "All section students are enrolled") : "Restore this class to edit enrollments"}</option>${candidates.map(person => `<option value="${person.id}">${escapeHtml(person.name)} (${escapeHtml(person.email)})</option>`).join("")}</select><button class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700" ${candidates.length && offering.active ? "" : "disabled"}>Enroll student</button></form><div class="mt-2 flex flex-wrap gap-2">${enrolled.map(person => `<span class="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1 pl-2.5 pr-1 text-xs text-slate-600">${escapeHtml(person.name)}${button("×", "remove-offering-student", `data-offering-id="${offering.id}" data-profile-id="${person.id}" ${offering.active ? "" : "disabled"}`, "btn-danger")}</span>`).join("") || '<span class="text-xs text-slate-500">No students enrolled in this subject.</span>'}</div></div></div>`;
@@ -1266,6 +1266,20 @@
         }
         break;
       }
+      case "delete-section": {
+        if (!requireRole(["admin"])) return;
+        const section = state.sections.find(item => item.id === id);
+        if (!section || !confirm(`Permanently delete section "${section.name}"?\n\nThis also deletes its class offerings, section memberships, schedules, exams, announcements, acknowledgments, and schedule history. Student and staff accounts will not be deleted. This cannot be undone.`)) return;
+        try {
+          await window.CampusHubStore.deleteSection(id);
+          await refreshSharedData();
+          showToast("Section and its linked academic data were permanently deleted.");
+        } catch (error) {
+          console.error("CampusHub could not permanently delete the section.", error);
+          showToast(error.message || "The section could not be deleted.", "error");
+        }
+        break;
+      }
       case "toggle-offering-active": {
         if (!requireRole(["admin"])) return;
         const offering = state.offerings.find(item => item.id === id);
@@ -1277,6 +1291,20 @@
         } catch (error) {
           console.error("CampusHub could not update class offering status.", error);
           showToast(error.message || "Class offering status could not be updated.", "error");
+        }
+        break;
+      }
+      case "delete-offering": {
+        if (!requireRole(["admin"])) return;
+        const offering = state.offerings.find(item => item.id === id);
+        if (!offering || !confirm(`Permanently delete "${offering.subject}"${offering.course_code ? ` (${offering.course_code})` : ""}?\n\nThis also deletes its staff assignments, student enrollments, schedules, exams, announcements, acknowledgments, and schedule history. Accounts and the parent section will not be deleted. This cannot be undone.`)) return;
+        try {
+          await window.CampusHubStore.deleteOffering(id);
+          await refreshSharedData();
+          showToast("Class offering and its linked academic data were permanently deleted.");
+        } catch (error) {
+          console.error("CampusHub could not permanently delete the class offering.", error);
+          showToast(error.message || "The class offering could not be deleted.", "error");
         }
         break;
       }

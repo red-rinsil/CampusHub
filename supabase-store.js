@@ -222,6 +222,13 @@
     }));
   }
 
+  async function deleteSection(sectionId) {
+    assertReady();
+    return unwrap(await client.rpc("delete_campus_section", {
+      p_section_id: sectionId
+    }));
+  }
+
   async function updateSection(sectionId, name) {
     assertReady();
     return unwrap(await client.rpc("update_campus_section", {
@@ -244,6 +251,13 @@
     return unwrap(await client.rpc("set_class_offering_active", {
       p_offering_id: offeringId,
       p_active: active
+    }));
+  }
+
+  async function deleteOffering(offeringId) {
+    assertReady();
+    return unwrap(await client.rpc("delete_class_offering", {
+      p_offering_id: offeringId
     }));
   }
 
@@ -308,9 +322,11 @@
     createOffering,
     assignStaff,
     setSectionActive,
+    deleteSection,
     updateSection,
     updateOffering,
     setOfferingActive,
+    deleteOffering,
     assignSectionOfficer,
     setOfferingEnrollment,
     inviteUser,
