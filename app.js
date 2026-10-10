@@ -10,6 +10,7 @@
   };
   const navItems = [
     { id: "dashboard", label: "Dashboard", icon: "grid" },
+    { id: "subjects", label: "My subjects", icon: "book", professorOnly: true },
     { id: "announcements", label: "Announcements", icon: "bell" },
     { id: "timetable", label: "Class schedule", icon: "calendar" },
     { id: "exams", label: "Exam timetable", icon: "exam" },
@@ -20,6 +21,7 @@
   const icons = {
     grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>',
     bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/>',
+    book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"/><path d="M4 5.5v16M8 7h8M8 11h8"/>',
     exam: '<path d="M8 3h8l4 4v14H4V3h4Z"/><path d="M14 3v5h5M8 13h8M8 17h6"/>',
     calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
@@ -53,6 +55,8 @@
     activeOfferingId: null,
     scheduleViewSectionId: null,
     examViewSectionId: null,
+    calendarViewSectionId: null,
+    showProfessorAnnouncementForm: false,
     roleKeys: [],
     users: [],
     announcements: [
@@ -153,7 +157,10 @@
   }
 
   function selectedViewSection(tab) {
-    const sectionId = tab === "exams" ? state.examViewSectionId : state.scheduleViewSectionId;
+    const sectionId = tab === "exams"
+      ? state.examViewSectionId
+      : tab === "calendar" ? state.calendarViewSectionId : state.scheduleViewSectionId;
+    if (tab === "calendar" && sectionId === "all") return null;
     const sections = sectionsForViewing();
     return sections.find(section => section.id === sectionId) ||
       sections.find(section => section.id === currentOffering()?.section_id) ||
@@ -165,7 +172,13 @@
     if (!["admin", "professor"].includes(state.activeRole)) return "";
     const selectedSection = selectedViewSection(tab);
     const sections = sectionsForViewing();
-    return `<label class="min-w-48 text-left text-xs font-semibold text-slate-600">View section<select class="form-control mt-1 w-full py-2 text-xs" data-view-section="${tab}" aria-label="Choose section to view" ${sections.length && !disabled ? "" : "disabled"}>${sections.length ? sections.map(section => `<option value="${escapeHtml(section.id)}" ${section.id === selectedSection?.id ? "selected" : ""}>${escapeHtml(section.name)}</option>`).join("") : '<option value="">No assigned sections</option>'}</select></label>`;
+    const selectedValue = tab === "calendar" && state.calendarViewSectionId === "all"
+      ? "all"
+      : selectedSection?.id || "";
+    const allOption = tab === "calendar"
+      ? `<option value="all" ${selectedValue === "all" ? "selected" : ""}>All</option>`
+      : "";
+    return `<label class="min-w-48 text-left text-xs font-semibold text-slate-600">View section<select class="form-control mt-1 w-full py-2 text-xs" data-view-section="${tab}" aria-label="Choose section to view" ${sections.length && !disabled ? "" : "disabled"}>${allOption}${sections.length ? sections.map(section => `<option value="${escapeHtml(section.id)}" ${section.id === selectedValue ? "selected" : ""}>${escapeHtml(section.name)}</option>`).join("") : '<option value="">No assigned sections</option>'}</select></label>`;
   }
 
   function sectionScoped(items, section) {
@@ -215,6 +228,19 @@
   function availableOfferings() {
     return state.offerings.filter(offering => offering.active &&
       state.sections.some(section => section.id === offering.section_id && section.active));
+  }
+
+  function professorAssignedOfferings() {
+    const assignedIds = new Set(state.assignments
+      .filter(assignment => assignment.profile_id === state.currentUserId && assignment.staff_role === "professor")
+      .map(assignment => assignment.offering_id));
+    return availableOfferings().filter(offering => assignedIds.has(offering.id));
+  }
+
+  function professorAssignedSections() {
+    const sectionIds = new Set(professorAssignedOfferings().map(offering => offering.section_id));
+    return state.sections.filter(section => section.active && sectionIds.has(section.id))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
   }
 
   function offeringScoped(items) {
@@ -318,7 +344,8 @@
   function categoryClass(category) {
     return ({
       "General": "badge-general", "Exam Notice": "badge-exam", "Class Cancellation": "badge-cancellation",
-      "Deadline": "badge-deadline", "Quiz": "badge-quiz", "Project Deadline": "badge-project",
+      "Deadline": "badge-deadline", "Tertiary": "badge-tertiary", "Senior High": "badge-senior-high",
+      "Quiz": "badge-quiz", "Project Deadline": "badge-project",
       "Consultation": "badge-consultation", "Special Class": "badge-class", "Examination": "badge-examination"
     })[category] || "badge-general";
   }
@@ -336,7 +363,10 @@
   }
 
   function renderNav() {
-    nav.innerHTML = navItems.filter(item => !item.adminOnly || state.activeRole === "admin").map(item => {
+    nav.innerHTML = navItems.filter(item =>
+      (!item.adminOnly || state.activeRole === "admin") &&
+      (!item.professorOnly || state.activeRole === "professor")
+    ).map(item => {
       return `<button type="button" class="nav-link ${state.activeTab === item.id ? "is-active" : ""}" data-tab="${item.id}">
         ${navIcon(item.icon)}<span>${item.label}</span>
       </button>`;
@@ -357,7 +387,8 @@
     }
     landingPage.hidden = true;
     authenticatedApp.hidden = false;
-    if (state.activeTab === "management" && state.activeRole !== "admin") state.activeTab = "dashboard";
+    if ((state.activeTab === "management" && state.activeRole !== "admin") ||
+      (state.activeTab === "subjects" && state.activeRole !== "professor")) state.activeTab = "dashboard";
     document.getElementById("account-name").textContent = account.name;
     document.getElementById("account-role").textContent = `${roles[state.activeRole].label} · ${account.email}`;
     renderOfferingContext();
@@ -372,6 +403,7 @@
     }
     const pages = {
       dashboard: renderDashboard,
+      subjects: renderProfessorSubjects,
       announcements: renderAnnouncements,
       timetable: renderTimetable,
       exams: renderExamTimetable,
@@ -658,8 +690,10 @@
     return `<article class="surface-card p-4 sm:p-5"><div class="flex items-start justify-between"><p class="text-sm font-medium text-slate-500">${title}</p><span class="${color}">${navIcon(iconName)}</span></div><p class="mt-4 text-3xl font-bold tracking-tight">${value}</p><p class="mt-1 text-xs text-slate-500">${subtitle}</p></article>`;
   }
 
-  function eventRow(event) {
-    return `<div class="flex items-center gap-3 py-3.5"><div class="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl bg-indigo-50 text-indigo-700"><span class="text-[10px] font-bold uppercase">${escapeHtml(new Intl.DateTimeFormat("en", { month: "short" }).format(new Date(event.date)))}</span><span class="text-lg font-bold leading-5">${new Date(event.date).getDate()}</span></div><div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-2">${badge(event.type)}<span class="text-xs text-slate-500">${escapeHtml(event.subject)}</span></div><p class="mt-1 truncate text-sm font-semibold">${escapeHtml(event.title)}</p><p class="text-xs text-slate-500">${formatTime(event.date)} · ${escapeHtml(event.location)}</p></div><span class="hidden text-xs font-medium text-slate-500 sm:inline">${relativeDate(event.date)}</span></div>`;
+  function eventRow(event, showSection = false) {
+    const sectionName = state.sections.find(section => section.id === event.sectionId ||
+      (!event.sectionId && state.offerings.some(offering => offering.id === event.offeringId && offering.section_id === section.id)))?.name;
+    return `<div class="flex items-center gap-3 py-3.5"><div class="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl bg-indigo-50 text-indigo-700"><span class="text-[10px] font-bold uppercase">${escapeHtml(new Intl.DateTimeFormat("en", { month: "short" }).format(new Date(event.date)))}</span><span class="text-lg font-bold leading-5">${new Date(event.date).getDate()}</span></div><div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-2">${badge(event.type)}<span class="text-xs text-slate-500">${escapeHtml(event.subject)}</span>${showSection && sectionName ? `<span class="text-xs font-medium text-indigo-600">${escapeHtml(sectionName)}</span>` : ""}</div><p class="mt-1 truncate text-sm font-semibold">${escapeHtml(event.title)}</p><p class="text-xs text-slate-500">${formatTime(event.date)} · ${escapeHtml(event.location)}</p></div><span class="hidden text-xs font-medium text-slate-500 sm:inline">${relativeDate(event.date)}</span></div>`;
   }
 
   function emptyState(title, description) {
@@ -667,8 +701,11 @@
   }
 
   function renderAnnouncements() {
-    const scopedAnnouncements = offeringScoped(state.announcements);
-    const categories = ["All", "General", "Exam Notice", "Class Cancellation", "Deadline"];
+    const scopedAnnouncements = state.activeRole === "student"
+      ? state.announcements.filter(item => item.sectionId === currentSection()?.id ||
+        (!item.sectionId && state.offerings.some(offering => offering.id === item.offeringId && offering.section_id === currentSection()?.id)))
+      : offeringScoped(state.announcements);
+    const categories = ["All", "General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High"];
     const items = scopedAnnouncements.filter(item => !item.archived && (state.announcementFilter === "All" || item.category === state.announcementFilter)).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     const canCreate = canManageAnnouncements();
     return `${pageIntro("Stay in the loop", "Campus announcements", "Official updates, class changes, and important deadlines from your professors and class officers.", canCreate ? button("＋ Create announcement", "toggle-announcement-form", "", "btn-primary") : "")}
@@ -684,14 +721,14 @@
 
   function announcementForm(item = null) {
     const editing = Boolean(item);
-    const selectedOfferingId = item?.offeringId || state.activeOfferingId;
+    const sectionName = state.sections.find(section => section.id === (item?.sectionId || currentOffering()?.section_id))?.name || "";
     return `<form id="announcement-form" class="mt-5 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
       <div class="mb-4 flex items-center justify-between"><h4 class="font-bold">${editing ? "Edit announcement" : "New announcement"}</h4>${button("Cancel", "cancel-announcement-form")}</div>
       <input type="hidden" name="id" value="${editing ? escapeHtml(item.id) : ""}">
       <div class="grid gap-3 sm:grid-cols-2">
         ${field("Title", "title", item?.title, "text", true)}
-        ${offeringSelectionFields(selectedOfferingId)}
-        <label class="block text-xs font-semibold text-slate-600">Category<select name="category" class="form-control mt-1.5" required>${["General", "Exam Notice", "Class Cancellation", "Deadline"].map(value => `<option ${item?.category === value ? "selected" : ""}>${value}</option>`).join("")}</select></label>
+        <p class="self-center text-xs font-medium text-slate-500">${escapeHtml(sectionName)}${item?.subject || currentOffering()?.subject ? ` · ${escapeHtml(item?.subject || currentOffering()?.subject)}` : ""}</p>
+        <label class="block text-xs font-semibold text-slate-600">Category<select name="category" class="form-control mt-1.5" required>${["General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High"].map(value => `<option ${item?.category === value ? "selected" : ""}>${value}</option>`).join("")}</select></label>
         <label class="flex items-center gap-2 self-end pb-3 text-sm font-medium text-slate-700"><input type="checkbox" name="urgent" class="h-4 w-4 rounded border-slate-300 text-indigo-600" ${item?.urgent ? "checked" : ""}> Mark as urgent</label>
         <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required>${editing ? escapeHtml(item.content) : ""}</textarea></label>
       </div>
@@ -699,10 +736,52 @@
     </form>`;
   }
 
+  function professorAnnouncementForm() {
+    const sections = professorAssignedSections();
+    return `<form id="professor-announcement-form" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4">
+      <div class="mb-4 flex items-center justify-between"><div><h3 class="font-bold">New announcement</h3><p class="mt-1 text-xs text-slate-500">Select one or more sections, or choose all. Choose the subject to associate with the notice in each section.</p></div>${button("Cancel", "cancel-professor-announcement-form")}</div>
+      <div class="grid gap-3 sm:grid-cols-2">
+        ${field("Title", "title", "", "text", true)}
+        <label class="block text-xs font-semibold text-slate-600">Category<select name="category" class="form-control mt-1.5" required>${["General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High"].map(value => `<option>${value}</option>`).join("")}</select></label>
+        <label class="flex items-center gap-2 text-sm font-medium text-slate-700 sm:col-span-2"><input type="checkbox" name="allSections" value="all" data-announcement-all-sections class="h-4 w-4 rounded border-slate-300 text-indigo-600"> All my assigned sections</label>
+        <div class="space-y-2 sm:col-span-2">${sections.map(section => {
+          const offerings = professorAssignedOfferings().filter(offering => offering.section_id === section.id)
+            .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" }));
+          return `<div class="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,1fr)] sm:items-center">
+            <label class="flex items-center gap-2 text-sm font-medium text-slate-700"><input type="checkbox" name="sectionIds" value="${escapeHtml(section.id)}" data-announcement-section class="h-4 w-4 rounded border-slate-300 text-indigo-600"> ${escapeHtml(section.name)}</label>
+            <select class="form-control py-2 text-xs" name="offering-${escapeHtml(section.id)}" data-announcement-section-offering="${escapeHtml(section.id)}" aria-label="Subject for ${escapeHtml(section.name)}" disabled>${offerings.map(offering => `<option value="${escapeHtml(offering.id)}">${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</option>`).join("")}</select>
+          </div>`;
+        }).join("")}</div>
+        <label class="flex items-center gap-2 text-sm font-medium text-slate-700 sm:col-span-2"><input type="checkbox" name="urgent" class="h-4 w-4 rounded border-slate-300 text-indigo-600"> Mark as urgent</label>
+        <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required></textarea></label>
+      </div>
+      <div class="mt-3 flex justify-end"><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700">Publish announcement</button></div>
+    </form>`;
+  }
+
+  function renderProfessorSubjects() {
+    const offerings = professorAssignedOfferings().sort((a, b) => {
+      const sectionA = state.sections.find(section => section.id === a.section_id)?.name || "";
+      const sectionB = state.sections.find(section => section.id === b.section_id)?.name || "";
+      return sectionA.localeCompare(sectionB, undefined, { sensitivity: "base" }) ||
+        a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" });
+    });
+    const groups = professorAssignedSections().map(section => ({
+      section,
+      offerings: offerings.filter(offering => offering.section_id === section.id)
+    }));
+    return `${pageIntro("Teaching", "My subjects", "Review every subject assigned to you and manage announcements for one or more of your sections.", button("＋ Create announcement", "toggle-professor-announcement-form", "", "btn-primary"))}
+      ${state.showProfessorAnnouncementForm ? professorAnnouncementForm() : ""}
+      <section class="grid gap-4 md:grid-cols-2">${groups.map(({ section, offerings: sectionOfferings }) => `<article class="surface-card p-5">
+        <div class="flex flex-wrap items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-indigo-600">Section</p><h3 class="mt-1 text-lg font-bold">${escapeHtml(section.name)}</h3></div><div class="flex gap-2">${button("Schedule", "open-professor-section", `data-section-id="${escapeHtml(section.id)}" data-view="timetable"`)}${button("Calendar", "open-professor-section", `data-section-id="${escapeHtml(section.id)}" data-view="calendar"`)}</div></div>
+        <ul class="mt-4 divide-y divide-slate-100">${sectionOfferings.map(offering => `<li class="flex items-center justify-between gap-3 py-3"><div><p class="text-sm font-semibold text-slate-800">${escapeHtml(offering.subject)}</p>${offering.course_code ? `<p class="mt-0.5 text-xs text-slate-500">${escapeHtml(offering.course_code)}</p>` : ""}</div>${button("Announce", "announce-for-offering", `data-offering-id="${escapeHtml(offering.id)}"`, "btn-secondary")}</li>`).join("")}</ul>
+      </article>`).join("") || `<section class="surface-card p-5 md:col-span-2">${emptyState("No subjects assigned", "Ask an administrator to assign you to a subject.")}</section>`}</section>`;
+  }
+
   function announcementCard(item) {
     const acknowledged = item.acknowledgments.includes(activeUserId());
     const canEdit = canManageAnnouncements() && item.authorRole === state.activeRole || state.activeRole === "admin";
-    const totalStudents = state.studentCounts[state.activeOfferingId] || 0;
+    const totalStudents = state.studentCounts[item.offeringId] || 0;
     return `<article class="rounded-xl border ${item.urgent ? "border-rose-200" : "border-slate-200"} p-4 sm:p-5">
       <div class="flex flex-wrap items-center gap-2">${badge(item.category)}${item.urgent ? '<span class="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700">Urgent</span>' : ""}<span class="ml-auto text-xs text-slate-500">${relativeDate(item.createdAt)} · ${escapeHtml(formatTime(item.createdAt))}</span></div>
       <h3 class="mt-3 text-lg font-bold tracking-tight">${escapeHtml(item.title)}</h3><p class="mt-1 text-xs font-medium text-slate-500">${escapeHtml(item.subject)} <span class="px-1">·</span> Posted by ${escapeHtml(item.author)}</p>
@@ -777,13 +856,22 @@
   }
 
   function renderCalendar() {
-    const scopedEvents = offeringScoped(state.events);
+    const allSections = state.calendarViewSectionId === "all" && ["admin", "professor"].includes(state.activeRole);
+    const section = selectedViewSection("calendar");
+    const scopedEvents = allSections
+      ? state.events.filter(event => sectionsForViewing().some(viewableSection =>
+        (event.sectionId || state.offerings.find(offering => offering.id === event.offeringId)?.section_id) === viewableSection.id))
+      : ["admin", "professor"].includes(state.activeRole)
+        ? sectionRecordsForCurrentRole(state.events, section)
+        : offeringScoped(state.events);
     const canEdit = canManageEvents();
     const events = [...scopedEvents].sort((a, b) => new Date(a.date) - new Date(b.date));
-    return `${pageIntro("Never miss a date", "Academic calendar", "Examinations, quizzes, project deadlines, consultations, and special class sessions in one chronological view.", canEdit ? button("＋ Add calendar item", "toggle-event-form", "", "btn-primary") : "")}
-      ${state.showEventForm ? eventForm(scopedEvents.find(item => item.id === state.editingEvent)) : ""}
+    const actions = `<div class="flex flex-wrap items-end gap-2">${viewSectionSelector("calendar")}${canEdit ? button("＋ Add calendar item", "toggle-event-form", "", "btn-primary") : ""}</div>`;
+    const selectedOffering = state.offerings.find(offering => offering.section_id === section?.id && offering.active)?.id || state.activeOfferingId;
+    return `${pageIntro("Never miss a date", "Academic calendar", "Examinations, quizzes, project deadlines, consultations, and special class sessions in one chronological view.", actions)}
+      ${state.showEventForm ? eventForm(scopedEvents.find(item => item.id === state.editingEvent), false, selectedOffering, allSections ? null : section?.id) : ""}
       <section class="surface-card p-4 sm:p-6"><div class="mb-4 flex items-center justify-between"><div><h3 class="font-bold">Upcoming academic dates</h3><p class="mt-1 text-xs text-slate-500">${events.length} scheduled items</p></div></div>
-        <div class="divide-y divide-slate-100">${events.length ? events.map(event => `<div class="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">${eventRow(event)}${canEdit ? `<div class="flex shrink-0 gap-2 sm:ml-2">${button("Edit", "edit-event", `data-id="${event.id}"`)}${button("Delete", "delete-event", `data-id="${event.id}"`, "btn-danger")}</div>` : ""}</div>`).join("") : emptyState("Nothing scheduled", "New academic events will appear here.")}</div>
+        <div class="divide-y divide-slate-100">${events.length ? events.map(event => `<div class="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">${eventRow(event, allSections)}${canEdit ? `<div class="flex shrink-0 gap-2 sm:ml-2">${button("Edit", "edit-event", `data-id="${event.id}"`)}${button("Delete", "delete-event", `data-id="${event.id}"`, "btn-danger")}</div>` : ""}</div>`).join("") : emptyState("Nothing scheduled", "New academic events will appear here.")}</div>
       </section>`;
   }
 
@@ -1378,8 +1466,9 @@
     const target = event.target.closest("[data-tab]");
     if (!target) return;
     const tab = target.dataset.tab;
-    if (tab === "management" && state.activeRole !== "admin") {
-      showToast("User management is available to administrators only.", "error");
+    if ((tab === "management" && state.activeRole !== "admin") ||
+      (tab === "subjects" && state.activeRole !== "professor")) {
+      showToast(tab === "management" ? "User management is available to administrators only." : "My subjects is available to professors only.", "error");
       return;
     }
     state.activeTab = tab;
@@ -1394,11 +1483,35 @@
     }
     const viewSectionSelect = event.target.closest("[data-view-section]");
     if (viewSectionSelect) {
+      if (viewSectionSelect.dataset.viewSection === "calendar" && viewSectionSelect.value === "all") {
+        state.calendarViewSectionId = "all";
+        render();
+        return;
+      }
       const section = sectionsForViewing().find(item => item.id === viewSectionSelect.value);
       if (!section) return;
       if (viewSectionSelect.dataset.viewSection === "exams") state.examViewSectionId = section.id;
+      else if (viewSectionSelect.dataset.viewSection === "calendar") state.calendarViewSectionId = section.id;
       else state.scheduleViewSectionId = section.id;
       render();
+      return;
+    }
+    const allAnnouncementSections = event.target.closest("[data-announcement-all-sections]");
+    if (allAnnouncementSections) {
+      const form = allAnnouncementSections.form;
+      const sectionChecks = [...form.querySelectorAll("[data-announcement-section]")];
+      sectionChecks.forEach(check => {
+        check.checked = false;
+        check.disabled = allAnnouncementSections.checked;
+        const subject = form.querySelector(`[data-announcement-section-offering="${check.value}"]`);
+        if (subject) subject.disabled = !allAnnouncementSections.checked;
+      });
+      return;
+    }
+    const announcementSection = event.target.closest("[data-announcement-section]");
+    if (announcementSection) {
+      const subject = announcementSection.form.querySelector(`[data-announcement-section-offering="${announcementSection.value}"]`);
+      if (subject) subject.disabled = !announcementSection.checked;
       return;
     }
     const sectionOfferingSelect = event.target.closest("[data-offering-section-select]");
@@ -1445,9 +1558,35 @@
     switch (action) {
       case "navigate":
         if (target === "management" && state.activeRole !== "admin") return;
+        if (target === "subjects" && state.activeRole !== "professor") return;
         state.activeTab = target;
         render();
         break;
+      case "open-professor-section": {
+        if (!requireRole(["professor"])) return;
+        const sectionId = control.dataset.sectionId;
+        const offering = professorAssignedOfferings().find(item => item.section_id === sectionId);
+        if (!offering) return showToast("That section is not assigned to you.", "error");
+        state.activeOfferingId = offering.id;
+        persistActiveOffering();
+        if (control.dataset.view === "calendar") state.calendarViewSectionId = sectionId;
+        else state.scheduleViewSectionId = sectionId;
+        state.activeTab = control.dataset.view === "calendar" ? "calendar" : "timetable";
+        render();
+        break;
+      }
+      case "announce-for-offering": {
+        if (!requireRole(["professor"])) return;
+        const offering = professorAssignedOfferings().find(item => item.id === control.dataset.offeringId);
+        if (!offering) return showToast("That subject is not assigned to you.", "error");
+        state.activeOfferingId = offering.id;
+        persistActiveOffering();
+        state.activeTab = "announcements";
+        state.showAnnouncementForm = true;
+        state.editingAnnouncement = null;
+        render();
+        break;
+      }
       case "open-import":
         openImportDialog();
         break;
@@ -1566,6 +1705,15 @@
       case "toggle-announcement-form":
         if (!requireRole(["professor", "officer", "admin"])) return;
         state.showAnnouncementForm = !state.showAnnouncementForm;
+        render();
+        break;
+      case "toggle-professor-announcement-form":
+        if (!requireRole(["professor"])) return;
+        state.showProfessorAnnouncementForm = !state.showProfessorAnnouncementForm;
+        render();
+        break;
+      case "cancel-professor-announcement-form":
+        state.showProfessorAnnouncementForm = false;
         render();
         break;
       case "cancel-announcement-form":
@@ -1706,7 +1854,7 @@
     const staffForm = formId?.startsWith("staff-assignment-form-");
     const officerForm = formId?.startsWith("section-officer-form-");
     const enrollmentForm = formId?.startsWith("enrollment-form-");
-    if (!["announcement-form", "schedule-form", "event-form", "exam-event-form", "user-form", "section-form"].includes(formId) && !offeringForm && !sectionEditForm && !offeringEditForm && !staffForm && !officerForm && !enrollmentForm) return;
+    if (!["announcement-form", "professor-announcement-form", "schedule-form", "event-form", "exam-event-form", "user-form", "section-form"].includes(formId) && !offeringForm && !sectionEditForm && !offeringEditForm && !staffForm && !officerForm && !enrollmentForm) return;
     event.preventDefault();
     const values = formValues(form);
     if (formId === "section-form") {
@@ -1780,12 +1928,49 @@
         console.error("CampusHub could not enroll the student in the subject.", error);
         showToast(error.message || "The student could not be enrolled in the subject.", "error");
       }
+    } else if (formId === "professor-announcement-form") {
+      if (!requireRole(["professor"])) return;
+      const allSections = form.elements.allSections.checked;
+      const sectionIds = allSections
+        ? professorAssignedSections().map(section => section.id)
+        : [...form.querySelectorAll("[data-announcement-section]:checked")].map(input => input.value);
+      if (!sectionIds.length) return showToast("Choose at least one section or select all assigned sections.", "error");
+      const assignedOfferings = professorAssignedOfferings();
+      const targets = sectionIds.map(sectionId => {
+        const subjectSelect = [...form.querySelectorAll("[data-announcement-section-offering]")]
+          .find(select => select.dataset.announcementSectionOffering === sectionId);
+        return assignedOfferings.find(offering => offering.id === subjectSelect?.value && offering.section_id === sectionId);
+      });
+      if (targets.some(target => !target)) return showToast("Choose a subject assigned to you for every selected section.", "error");
+      const createdAt = new Date().toISOString();
+      targets.forEach(targetOffering => {
+        state.announcements.unshift({
+          id: generateId("ann"),
+          title: values.title.trim(),
+          subject: targetOffering.subject,
+          category: values.category,
+          content: values.content.trim(),
+          urgent: form.elements.urgent.checked,
+          author: currentUser()?.name || roles.professor.name,
+          authorRole: "professor",
+          createdAt,
+          archived: false,
+          acknowledgments: [],
+          offeringId: targetOffering.id,
+          sectionId: targetOffering.section_id
+        });
+      });
+      state.showProfessorAnnouncementForm = false;
+      saveState();
+      render();
+      showToast(`Announcement published to ${targets.length} ${targets.length === 1 ? "section" : "sections"}.`);
     } else if (formId === "announcement-form") {
       if (!requireRole(["professor", "officer", "admin"])) return;
-      const targetOffering = offeringFromForm(values);
-      if (!targetOffering) return showToast("Choose an active subject in a section you can manage.", "error");
+      const itemToEdit = values.id ? state.announcements.find(entry => entry.id === values.id) : null;
+      const targetOffering = state.offerings.find(offering => offering.id === (itemToEdit?.offeringId || state.activeOfferingId));
+      if (!targetOffering || !availableOfferings().some(offering => offering.id === targetOffering.id)) return showToast("Choose an active subject from the top navigation first.", "error");
       if (values.id) {
-        const item = state.announcements.find(entry => entry.id === values.id);
+        const item = itemToEdit;
         if (!item || !(state.activeRole === "admin" || item.authorRole === state.activeRole)) return showToast("You cannot edit this announcement.", "error");
         if (item.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this announcement.", "error");
         Object.assign(item, { title: values.title.trim(), subject: targetOffering.subject, category: values.category, content: values.content.trim(), urgent: form.elements.urgent.checked, offeringId: targetOffering.id, sectionId: targetOffering.section_id });
@@ -1846,10 +2031,16 @@
         showToast("Calendar item added.");
       }
       state.activeOfferingId = targetOffering.id;
-      state.examViewSectionId = targetOffering.section_id;
       persistActiveOffering();
-      if (formId === "exam-event-form") { state.showExamForm = false; state.editingExam = null; }
-      else { state.showEventForm = false; state.editingEvent = null; }
+      if (formId === "exam-event-form") {
+        state.examViewSectionId = targetOffering.section_id;
+        state.showExamForm = false;
+        state.editingExam = null;
+      } else {
+        if (state.calendarViewSectionId !== "all") state.calendarViewSectionId = targetOffering.section_id;
+        state.showEventForm = false;
+        state.editingEvent = null;
+      }
       saveState(); render();
     } else if (formId === "user-form") {
       if (!requireRole(["admin"])) return;
