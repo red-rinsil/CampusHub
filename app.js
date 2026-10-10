@@ -332,20 +332,68 @@
 
   function visibleCollections() {
     if (state.activeRole === "student") {
-      const section = currentSection();
       return {
-        announcements: sectionRecordsForCurrentRole(state.announcements, section),
+        announcements: announcementScopeForCurrentRole(),
         schedules: sectionRecordsForCurrentRole(state.schedules, section),
         events: sectionRecordsForCurrentRole(state.events, section),
         scheduleHistory: sectionRecordsForCurrentRole(state.scheduleHistory, section)
       };
     }
     return {
-      announcements: offeringScoped(state.announcements),
+      announcements: announcementScopeForCurrentRole(),
       schedules: offeringScoped(state.schedules),
       events: offeringScoped(state.events),
       scheduleHistory: offeringScoped(state.scheduleHistory)
     };
+  }
+
+  function announcementScopeForCurrentRole() {
+    if (state.activeRole === "admin") return state.announcements;
+    if (state.activeRole === "student") {
+      const section = currentSection();
+      if (!section) return [];
+      const enrolledOfferingIds = new Set(studentSectionOfferings(section).map(offering => offering.id));
+      return state.announcements.filter(item =>
+        enrolledOfferingIds.has(item.offeringId) ||
+        (!item.offeringId && item.sectionId === section.id)
+      );
+    }
+    const manageableOfferingIds = new Set(announcementTargetOfferings().map(offering => offering.id));
+    return state.announcements.filter(item => manageableOfferingIds.has(item.offeringId));
+  }
+
+  function announcementCategory(item) {
+    return item.category === item.subject ? "Subject" : item.category;
+  }
+
+  function groupAnnouncements(items) {
+    const groups = new Map();
+    items.forEach(item => {
+      const key = JSON.stringify([
+        item.title, item.content, item.author, item.authorRole, item.createdAt,
+        item.urgent, item.archived, announcementCategory(item)
+      ]);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(item);
+    });
+    return [...groups.values()].map(group => group.sort((a, b) =>
+      announcementTargetLabel(a).localeCompare(announcementTargetLabel(b), undefined, { sensitivity: "base" })
+    ));
+  }
+
+  function announcementTargetLabel(item) {
+    const section = state.sections.find(entry => entry.id === item.sectionId) ||
+      state.sections.find(entry => state.offerings.some(offering =>
+        offering.id === item.offeringId && offering.section_id === entry.id
+      ));
+    return [section?.name, item.subject].filter(Boolean).join(" · ") || "Campus";
+  }
+
+  function canManageAnnouncementItem(item) {
+    return (state.activeRole === "admin" ||
+      (item.authorRole === state.activeRole &&
+        announcementTargetOfferings().some(offering => offering.id === item.offeringId))) &&
+      (state.activeRole !== "officer" || officerHasOffering(item.offeringId));
   }
 
   function activeUserId() {
@@ -719,17 +767,20 @@
     const scoped = visibleCollections();
     const nextEvents = scoped.events.filter(event => new Date(event.date) >= new Date())
       .sort((a, b) => new Date(a.date) - new Date(b.date));
-    const latestAnnouncements = scoped.announcements.filter(item => !item.archived)
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    const activeAnnouncementGroups = groupAnnouncements(scoped.announcements.filter(item => !item.archived));
+    const latestAnnouncements = activeAnnouncementGroups
+      .sort((a, b) => new Date(b[0].createdAt) - new Date(a[0].createdAt))
       .slice(0, 3);
     const studentCount = state.studentCounts[state.activeOfferingId] || 0;
-    const unread = scoped.announcements.filter(item => !item.archived && !item.acknowledgments.includes(activeUserId())).length;
+    const unread = activeAnnouncementGroups.filter(group =>
+      group.some(item => !item.acknowledgments.includes(activeUserId()))
+    ).length;
     const dashboardSection = state.sections.find(item => item.id === (state.membership?.section_id || currentOffering()?.section_id));
     return `${pageIntro("Your campus, at a glance", `Welcome back, ${escapeHtml((currentUser()?.name || roles[state.activeRole].name).split(" ")[0])}`, "Your classes, key dates, and the updates that matter — organized in one place.", bulkScheduleActions())}
       ${dashboardSection ? `<p class="mb-5 -mt-4 text-sm font-semibold text-indigo-700">${escapeHtml(dashboardSection.name)}</p>` : ""}
       <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         ${metricCard("Upcoming academic dates", nextEvents.length, "Across exams, quizzes & deadlines", "text-indigo-600", "calendar")}
-        ${metricCard("Active announcements", scoped.announcements.filter(item => !item.archived).length, "Updates from your campus", "text-violet-600", "bell")}
+        ${metricCard("Active announcements", activeAnnouncementGroups.length, "Updates for your classes", "text-violet-600", "bell")}
         ${metricCard("Unread updates", unread, "Not yet acknowledged by you", "text-amber-600", "clock")}
         ${metricCard("Students in this section", studentCount, "Enrolled in this section", "text-emerald-600", "users")}
       </div>
@@ -743,13 +794,18 @@
           <div class="flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-indigo-600">Coming up</p><h3 class="mt-1 text-lg font-bold">Exams & deadlines</h3></div>${button("View calendar", "navigate", 'data-target="calendar"', "btn-secondary")}</div>
           <div class="mt-5 divide-y divide-slate-100">${nextEvents.length ? nextEvents.slice(0, 4).map(event => eventRow(event)).join("") : emptyState("You're all caught up", "No upcoming academic dates are scheduled.")}</div>
         </section>
-        <section class="surface-card p-5 sm:p-6">
+        <section class="surface-card flex flex-col p-5 sm:p-6">
           <div class="flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-rose-600">Campus updates</p><h3 class="mt-1 text-lg font-bold">Latest announcements</h3></div>${button("All announcements", "navigate", 'data-target="announcements"', "btn-secondary")}</div>
-          <div class="mt-5 space-y-3">${latestAnnouncements.length ? latestAnnouncements.map(item => `<article class="rounded-xl border ${item.urgent ? "border-rose-100 bg-rose-50/60" : "border-slate-100 bg-slate-50/60"} p-4">
-            <div class="flex items-center justify-between gap-2">${badge(item.category)}<span class="text-xs text-slate-500">${relativeDate(item.createdAt)}</span></div>
+          <div class="mt-5 flex flex-1 flex-col gap-3">${latestAnnouncements.length ? latestAnnouncements.map(group => {
+            const item = group[0];
+            const targets = [...new Set(group.map(announcementTargetLabel))];
+            return `<article class="h-auto min-h-0 flex-1 rounded-xl border ${item.urgent ? "border-rose-100 bg-rose-50/60" : "border-slate-100 bg-slate-50/60"} p-4">
+            <div class="flex items-center justify-between gap-2">${badge(announcementCategory(item))}<span class="text-xs text-slate-500">${relativeDate(item.createdAt)}</span></div>
             <h4 class="mt-3 text-sm font-bold text-slate-900">${escapeHtml(item.title)}</h4>
             <p class="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">${escapeHtml(item.content)}</p>
-          </article>`).join("") : emptyState("No announcements yet", "The latest campus updates will appear here.")}</div>
+            <p class="mt-2 text-[11px] text-slate-500">${escapeHtml(targets.join(", "))}</p>
+          </article>`;
+          }).join("") : emptyState("No announcements yet", "The latest campus updates will appear here.")}</div>
         </section>
       </div>
       <section class="surface-card mt-6 p-5 sm:p-6"><div class="flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-emerald-600">This week</p><h3 class="mt-1 text-lg font-bold">Your class schedule</h3></div>${button("Open timetable", "navigate", 'data-target="timetable"', "btn-secondary")}</div>
@@ -772,22 +828,34 @@
   }
 
   function renderAnnouncements() {
-    const scopedAnnouncements = state.activeRole === "student"
-      ? state.announcements.filter(item => item.sectionId === currentSection()?.id ||
-        (!item.sectionId && state.offerings.some(offering => offering.id === item.offeringId && offering.section_id === currentSection()?.id)))
-      : offeringScoped(state.announcements);
-    const categories = ["All", "General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High",
-      ...new Set(scopedAnnouncements.map(item => item.category).filter(category => !["General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High"].includes(category)))];
-    const items = scopedAnnouncements.filter(item => !item.archived && (state.announcementFilter === "All" || item.category === state.announcementFilter)).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const scopedAnnouncements = announcementScopeForCurrentRole();
+    const baseCategories = ["General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High"];
+    const categories = ["All", ...new Set([
+      ...baseCategories,
+      "Subject",
+      ...scopedAnnouncements.map(item => item.category).filter(Boolean)
+    ])];
+    const selectedFilter = categories.includes(state.announcementFilter) ? state.announcementFilter : "All";
+    if (selectedFilter !== state.announcementFilter) state.announcementFilter = selectedFilter;
+    const visibleAnnouncements = scopedAnnouncements.filter(item => !item.archived &&
+      (selectedFilter === "All" ||
+        (selectedFilter === "Subject" && announcementCategory(item) === "Subject") ||
+        item.category === selectedFilter));
+    const groups = groupAnnouncements(visibleAnnouncements)
+      .sort((a, b) => new Date(b[0].createdAt) - new Date(a[0].createdAt));
+    const archivedGroups = state.activeRole === "admin"
+      ? groupAnnouncements(scopedAnnouncements.filter(item => item.archived))
+        .sort((a, b) => new Date(b[0].createdAt) - new Date(a[0].createdAt))
+      : [];
     const canCreate = canManageAnnouncements();
     return `${pageIntro("Stay in the loop", "Campus announcements", "Official updates, class changes, and important deadlines from your professors and class officers.", canCreate ? button("＋ Create announcement", "toggle-announcement-form", "", "btn-primary") : "")}
       <section class="surface-card p-4 sm:p-5">
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 class="font-bold">Latest updates</h3><p class="mt-1 text-xs text-slate-500">${items.length} ${items.length === 1 ? "announcement" : "announcements"}</p></div>
-          <label class="flex items-center gap-2 text-xs font-medium text-slate-500">Filter <select id="announcement-filter" class="form-control w-auto py-2">${categories.map(category => `<option ${state.announcementFilter === category ? "selected" : ""}>${category}</option>`).join("")}</select></label>
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 class="font-bold">Latest updates</h3><p class="mt-1 text-xs text-slate-500">${groups.length} ${groups.length === 1 ? "announcement" : "announcements"} for your accessible sections and subjects</p></div>
+          <label class="flex items-center gap-2 text-xs font-medium text-slate-500">Filter <select id="announcement-filter" class="form-control w-auto py-2">${categories.map(category => `<option ${selectedFilter === category ? "selected" : ""}>${escapeHtml(category)}</option>`).join("")}</select></label>
         </div>
         ${state.showAnnouncementForm ? announcementForm(scopedAnnouncements.find(item => item.id === state.editingAnnouncement)) : ""}
-        <div class="mt-4 space-y-4">${items.length ? items.map(announcementCard).join("") : emptyState("No announcements here", "Try another filter or check back later.")}</div>
-        ${state.activeRole === "admin" ? `<details class="mt-6 border-t border-slate-100 pt-4"><summary class="cursor-pointer text-sm font-semibold text-slate-600">Archived announcements (${scopedAnnouncements.filter(item => item.archived).length})</summary><div class="mt-3 space-y-3">${scopedAnnouncements.filter(item => item.archived).map(item => `<div class="flex items-center justify-between rounded-xl bg-slate-50 p-3"><span class="text-sm font-medium">${escapeHtml(item.title)}</span>${button("Restore", "restore-announcement", `data-id="${item.id}"`)}</div>`).join("") || '<p class="text-xs text-slate-500">No archived announcements.</p>'}</div></details>` : ""}
+        <div class="mt-4 space-y-4">${groups.length ? groups.map(announcementGroupCard).join("") : emptyState("No announcements here", "Try another filter or check back later.")}</div>
+        ${state.activeRole === "admin" ? `<details class="mt-6 border-t border-slate-100 pt-4"><summary class="cursor-pointer text-sm font-semibold text-slate-600">Archived announcements (${archivedGroups.length})</summary><div class="mt-3 space-y-3">${archivedGroups.map(announcementGroup => `<div class="rounded-xl bg-slate-50 p-3"><p class="text-sm font-medium">${escapeHtml(announcementGroup[0].title)}</p><div class="mt-2 space-y-2">${announcementGroup.map(item => `<div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600"><span>${escapeHtml(announcementTargetLabel(item))}</span>${button("Restore", "restore-announcement", `data-id="${item.id}"`)}</div>`).join("")}</div></div>`).join("") || '<p class="text-xs text-slate-500">No archived announcements.</p>'}</div></details>` : ""}
       </section>`;
   }
 
@@ -1001,21 +1069,32 @@
       </article>`).join("") || `<section class="surface-card p-5 md:col-span-2">${emptyState("No subjects assigned", "Ask an administrator to assign you to a subject.")}</section>`}</section>`;
   }
 
-  function announcementCard(item) {
-    const acknowledged = item.acknowledgments.includes(activeUserId());
-    const canEdit = canManageAnnouncements() && item.authorRole === state.activeRole || state.activeRole === "admin";
-    const totalStudents = state.studentCounts[item.offeringId] || 0;
+  function announcementGroupCard(group) {
+    const item = group[0];
+    const category = announcementCategory(item);
+    const acknowledged = group.every(entry => entry.acknowledgments.includes(activeUserId()));
+    const targets = [...new Set(group.map(announcementTargetLabel))];
+    const targetDetails = group.map(entry => {
+      const totalStudents = state.studentCounts[entry.offeringId] || 0;
+      const canEdit = canManageAnnouncementItem(entry);
+      return `<div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-2">
+        <div><p class="text-xs font-semibold text-slate-700">${escapeHtml(announcementTargetLabel(entry))}</p><p class="text-[11px] text-slate-500">${entry.acknowledgments.length}/${totalStudents} students acknowledged</p></div>
+        ${canEdit ? `<div class="flex gap-1">${button("Edit", "edit-announcement", `data-id="${entry.id}"`)}${button("Archive", "archive-announcement", `data-id="${entry.id}"`)}${button("Delete", "delete-announcement", `data-id="${entry.id}"`, "btn-danger")}</div>` : ""}
+      </div>`;
+    }).join("");
     return `<article class="rounded-xl border ${item.urgent ? "border-rose-200" : "border-slate-200"} p-4 sm:p-5">
-      <div class="flex flex-wrap items-center gap-2">${badge(item.category)}${item.urgent ? '<span class="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700">Urgent</span>' : ""}<span class="ml-auto text-xs text-slate-500">${relativeDate(item.createdAt)} · ${escapeHtml(formatTime(item.createdAt))}</span></div>
-      <h3 class="mt-3 text-lg font-bold tracking-tight">${escapeHtml(item.title)}</h3><p class="mt-1 text-xs font-medium text-slate-500">${escapeHtml(item.subject)} <span class="px-1">·</span> Posted by ${escapeHtml(item.author)}</p>
+      <div class="flex flex-wrap items-center gap-2">${badge(category)}${item.urgent ? '<span class="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700">Urgent</span>' : ""}<span class="ml-auto text-xs text-slate-500">${relativeDate(item.createdAt)} · ${escapeHtml(formatTime(item.createdAt))}</span></div>
+      <h3 class="mt-3 text-lg font-bold tracking-tight">${escapeHtml(item.title)}</h3><p class="mt-1 text-xs font-medium text-slate-500">Posted by ${escapeHtml(item.author)}</p>
       <p class="mt-3 whitespace-pre-line text-sm leading-6 text-slate-600">${escapeHtml(item.content)}</p>
+      <div class="mt-3 flex flex-wrap gap-1.5">${targets.map(target => `<span class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600">${escapeHtml(target)}</span>`).join("")}</div>
       <div class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
-        <span class="text-xs font-medium text-slate-500">${item.acknowledgments.length}/${totalStudents} students acknowledged</span>
+        <span class="text-xs font-medium text-slate-500">${group.length === 1 ? `${item.acknowledgments.length}/${state.studentCounts[item.offeringId] || 0} students acknowledged` : `${group.length} target copies · acknowledgment counts shown per target`}</span>
         <div class="flex flex-wrap gap-2">
-          ${state.activeRole === "student" ? button(acknowledged ? "✓ Acknowledged" : "Mark as read", "acknowledge", `data-id="${item.id}" ${acknowledged ? "disabled" : ""}`, acknowledged ? "btn-done" : "btn-primary") : ""}
-          ${canEdit ? `${button("Edit", "edit-announcement", `data-id="${item.id}"`)}${button("Archive", "archive-announcement", `data-id="${item.id}"`)}${button("Delete", "delete-announcement", `data-id="${item.id}"`, "btn-danger")}` : ""}
+          ${state.activeRole === "student" ? button(acknowledged ? "✓ Acknowledged" : "Mark as read", "acknowledge-announcement-group", `data-ids="${group.map(entry => escapeHtml(entry.id)).join(",")}" ${acknowledged ? "disabled" : ""}`, acknowledged ? "btn-done" : "btn-primary") : ""}
         </div>
       </div>
+      ${group.length > 1 && state.activeRole !== "student" ? `<details class="mt-3"><summary class="cursor-pointer text-xs font-semibold text-indigo-700">Manage target copies (${group.length})</summary><div class="mt-2 space-y-2">${targetDetails}</div></details>` : ""}
+      ${group.length === 1 && state.activeRole !== "student" && canManageAnnouncementItem(item) ? `<div class="mt-3 flex justify-end gap-2">${button("Edit", "edit-announcement", `data-id="${item.id}"`)}${button("Archive", "archive-announcement", `data-id="${item.id}"`)}${button("Delete", "delete-announcement", `data-id="${item.id}"`, "btn-danger")}</div>` : ""}
     </article>`;
   }
 
@@ -1659,6 +1738,36 @@
     }
   }
 
+  async function acknowledgeAnnouncementGroup(announcements) {
+    if (!requireRole(["student"])) return;
+    const pending = announcements.filter(item => !item.archived && !item.acknowledgments.includes(activeUserId()));
+    if (!pending.length) return;
+    let acknowledged = 0;
+    let failure = null;
+    for (const item of pending) {
+      try {
+        await window.CampusHubStore.acknowledge(item.id);
+        item.acknowledgments.push(activeUserId());
+        acknowledged++;
+      } catch (error) {
+        console.error(`CampusHub could not record acknowledgment for announcement ${item.id}.`, error);
+        failure = error;
+        break;
+      }
+    }
+    render();
+    if (failure) {
+      showToast(
+        acknowledged
+          ? `${acknowledged} acknowledgment(s) were saved; another target could not be acknowledged. ${failure.message || ""}`.trim()
+          : failure.message || "Your acknowledgment could not be saved.",
+        "error"
+      );
+    } else {
+      showToast("Your acknowledgment has been recorded for all your selected subjects.");
+    }
+  }
+
   async function generateRoleKey(role) {
     if (!requireRole(["admin"])) return;
     try {
@@ -1985,27 +2094,26 @@
       case "edit-announcement":
         if (!requireRole(["professor", "officer", "admin"])) return;
         if (!announcement || !(state.activeRole === "admin" || announcement.authorRole === state.activeRole)) return showToast("You can only edit announcements posted by your role.", "error");
-        if (announcement.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this announcement.", "error");
+        if (!announcementTargetOfferings().some(offering => offering.id === announcement.offeringId)) return showToast("You cannot manage announcements for this subject.", "error");
         if (state.activeRole === "officer" && !officerHasOffering(announcement.offeringId)) return showToast("You are not assigned to manage this subject.", "error");
         state.editingAnnouncement = id; state.showAnnouncementForm = true; render();
         break;
       case "archive-announcement":
         if (!requireRole(["professor", "officer", "admin"])) return;
         if (!announcement || !(state.activeRole === "admin" || announcement.authorRole === state.activeRole)) return showToast("You can only archive announcements posted by your role.", "error");
-        if (announcement.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this announcement.", "error");
+        if (!announcementTargetOfferings().some(offering => offering.id === announcement.offeringId)) return showToast("You cannot manage announcements for this subject.", "error");
         if (state.activeRole === "officer" && !officerHasOffering(announcement.offeringId)) return showToast("You are not assigned to manage this subject.", "error");
         announcement.archived = true; saveState(); render(); showToast("Announcement archived.");
         break;
       case "restore-announcement":
         if (!requireRole(["admin"])) return;
         if (!announcement) return;
-        if (announcement.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this announcement.", "error");
         announcement.archived = false; saveState(); render(); showToast("Announcement restored.");
         break;
       case "delete-announcement":
         if (!requireRole(["professor", "officer", "admin"])) return;
         if (!announcement || !(state.activeRole === "admin" || announcement.authorRole === state.activeRole)) return showToast("You can only delete announcements posted by your role.", "error");
-        if (announcement.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this announcement.", "error");
+        if (!announcementTargetOfferings().some(offering => offering.id === announcement.offeringId)) return showToast("You cannot manage announcements for this subject.", "error");
         if (state.activeRole === "officer" && !officerHasOffering(announcement.offeringId)) return showToast("You are not assigned to manage this subject.", "error");
         if (confirm("Delete this announcement permanently?")) {
           if (await deleteSharedRecord("announcements", id)) showToast("Announcement deleted.");
@@ -2014,6 +2122,13 @@
       case "acknowledge":
         acknowledgeAnnouncement(announcement);
         break;
+      case "acknowledge-announcement-group": {
+        const announcements = control.dataset.ids.split(",")
+          .map(announcementId => state.announcements.find(item => item.id === announcementId))
+          .filter(Boolean);
+        acknowledgeAnnouncementGroup(announcements);
+        break;
+      }
       case "toggle-schedule-form":
         if (!requireRole(["professor", "officer", "admin"]) || !canManageSchedules()) return;
         state.showScheduleForm = !state.showScheduleForm; render();
@@ -2237,7 +2352,7 @@
       if (values.id) {
         const item = itemToEdit;
         if (!item || !(state.activeRole === "admin" || item.authorRole === state.activeRole)) return showToast("You cannot edit this announcement.", "error");
-        if (item.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this announcement.", "error");
+        if (!announcementTargetOfferings().some(offering => offering.id === item.offeringId)) return showToast("You cannot manage announcements for this subject.", "error");
         Object.assign(item, { title: values.title.trim(), subject: targetOffering.subject, category: values.category === "Subject" ? targetOffering.subject : values.category, content: values.content.trim(), urgent: form.elements.urgent.checked, offeringId: targetOffering.id, sectionId: targetOffering.section_id });
         showToast("Announcement updated.");
       } else {
