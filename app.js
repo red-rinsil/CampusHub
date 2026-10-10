@@ -817,7 +817,7 @@
             return `<article class="h-auto min-h-0 flex-1 rounded-xl border ${item.urgent ? "border-rose-100 bg-rose-50/60" : "border-slate-100 bg-slate-50/60"} p-4">
             <div class="flex items-center justify-between gap-2">${badge(announcementCategory(item))}<span class="text-xs text-slate-500">${relativeDate(item.createdAt)}</span></div>
             <h4 class="mt-3 text-sm font-bold text-slate-900">${escapeHtml(item.title)}</h4>
-            <p class="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">${escapeHtml(item.content)}</p>
+            <p class="mt-1 whitespace-pre-line break-words text-xs leading-5 text-slate-600">${escapeHtml(item.content)}</p>
             <p class="mt-2 text-[11px] text-slate-500">${escapeHtml(targets.join(", "))}</p>
           </article>`;
           }).join("") : emptyState("No announcements yet", "The latest campus updates will appear here.")}</div>
