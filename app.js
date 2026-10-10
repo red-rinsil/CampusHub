@@ -403,7 +403,7 @@
       state.sections.find(entry => state.offerings.some(offering =>
         offering.id === item.offeringId && offering.section_id === entry.id
       ));
-    return [section?.name, item.subject].filter(Boolean).join(" · ") || "Campus";
+    return section?.name || "Campus";
   }
 
   function canManageAnnouncementItem(item) {
