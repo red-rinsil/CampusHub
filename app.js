@@ -800,8 +800,9 @@
         <div class="grid gap-3 sm:grid-cols-2">
           ${field("Title", "title", "", "text", true)}
           <label class="block text-xs font-semibold text-slate-600">Category<select name="category" class="form-control mt-1.5" data-announcement-category required>${["General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High", "Subject"].map(value => `<option>${value}</option>`).join("")}</select></label>
-          <p class="text-xs leading-5 text-slate-500 sm:col-span-2">Choose one or more sections or all available sections, then select a subject for each target section. If the category is Subject, each selected subject becomes that announcement’s category.</p>
+          <p class="text-xs leading-5 text-slate-500 sm:col-span-2">Choose the target sections. Select Subject as the category to choose a subject subcategory.</p>
           ${announcementTargetFields(offerings)}
+          ${announcementSubjectCategoryField(offerings)}
           <label class="flex items-center gap-2 text-sm font-medium text-slate-700 sm:col-span-2"><input type="checkbox" name="urgent" class="h-4 w-4 rounded border-slate-300 text-indigo-600"> Mark as urgent</label>
           <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required></textarea></label>
         </div>
@@ -820,7 +821,7 @@
         ${field("Title", "title", item?.title, "text", true)}
         <p class="self-center text-xs font-medium text-slate-500">${escapeHtml(sectionName)}${item?.subject || currentOffering()?.subject ? ` · ${escapeHtml(item?.subject || currentOffering()?.subject)}` : ""}</p>
         <label class="block text-xs font-semibold text-slate-600">Category<select name="category" class="form-control mt-1.5" data-announcement-category required>${[...new Set(["General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High", "Subject", item.category])].map(value => `<option ${((value === "Subject" && editingSubjectCategory) || (value === item.category && !editingSubjectCategory)) ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}</select></label>
-        <label class="block text-xs font-semibold text-slate-600 sm:col-span-2 ${editingSubjectCategory ? "" : "hidden"}" data-edit-subject-container>Subject category<select name="subjectOfferingId" class="form-control mt-1.5" data-edit-subject-select ${editingSubjectCategory ? "required" : ""}>${editOfferings.map(offering => `<option value="${escapeHtml(offering.id)}" ${offering.id === item.offeringId ? "selected" : ""}>${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</option>`).join("")}</select></label>
+        <label class="block text-xs font-semibold text-slate-600 sm:col-span-2 ${editingSubjectCategory ? "" : "hidden"}" data-edit-subject-container>Subject subcategory<select name="subjectOfferingId" class="form-control mt-1.5" data-edit-subject-select ${editingSubjectCategory ? "required" : ""}>${editOfferings.map(offering => `<option value="${escapeHtml(offering.id)}" ${offering.id === item.offeringId ? "selected" : ""}>${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</option>`).join("")}</select></label>
         <label class="flex items-center gap-2 self-end pb-3 text-sm font-medium text-slate-700"><input type="checkbox" name="urgent" class="h-4 w-4 rounded border-slate-300 text-indigo-600" ${item?.urgent ? "checked" : ""}> Mark as urgent</label>
         <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required>${editing ? escapeHtml(item.content) : ""}</textarea></label>
       </div>
@@ -841,19 +842,80 @@
       .map(sectionId => state.sections.find(section => section.id === sectionId))
       .filter(Boolean)
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
-    return `<div class="sm:col-span-2">
-      <div class="mb-2 flex flex-wrap items-center justify-between gap-2"><p class="text-xs font-semibold text-slate-600">Sections</p>
-        <label class="flex items-center gap-2 text-xs font-medium text-slate-600"><input type="checkbox" name="allSections" value="all" data-announcement-all-sections class="h-4 w-4 rounded border-slate-300 text-indigo-600"> ${allSectionsLabel}</label>
-      </div>
-      <div class="space-y-2">${sections.map(section => {
-        const sectionOfferings = offerings.filter(offering => offering.section_id === section.id)
-          .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" }));
-        return `<div class="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,1fr)] sm:items-center">
-          <label class="flex items-center gap-2 text-sm font-medium text-slate-700"><input type="checkbox" name="sectionIds" value="${escapeHtml(section.id)}" data-announcement-section class="h-4 w-4 rounded border-slate-300 text-indigo-600"> ${escapeHtml(section.name)}</label>
-          <label class="block text-xs font-semibold text-slate-600"><span data-announcement-subject-label>Subject</span><select class="form-control mt-1 py-2 text-xs" name="offering-${escapeHtml(section.id)}" data-announcement-section-offering="${escapeHtml(section.id)}" aria-label="Subject for ${escapeHtml(section.name)}" disabled required><option value="">Choose a subject</option>${sectionOfferings.map(offering => `<option value="${escapeHtml(offering.id)}">${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</option>`).join("")}</select></label>
-        </div>`;
-      }).join("") || '<p class="text-xs text-slate-500">No sections or subjects are available for your role.</p>'}</div>
+    return `<div class="text-xs font-semibold text-slate-600 sm:col-span-2"><p>Target sections</p>
+      <details class="group relative mt-1.5">
+        <summary class="form-control flex cursor-pointer list-none items-center justify-between gap-2 py-2.5 font-normal">
+          <span data-announcement-section-summary>Select sections</span><span aria-hidden="true" class="text-slate-400 group-open:rotate-180">⌄</span>
+        </summary>
+        <div class="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+          <label class="flex items-center gap-2 border-b border-slate-100 pb-2 text-sm font-medium text-indigo-700"><input type="checkbox" name="allSections" value="all" data-announcement-all-sections class="h-4 w-4 rounded border-slate-300 text-indigo-600"> ${allSectionsLabel}</label>
+          <div class="mt-2 space-y-2">${sections.map(section => `<label class="flex items-center gap-2 rounded-md px-1 py-1 text-sm font-medium text-slate-700">
+            <input type="checkbox" name="sectionIds" value="${escapeHtml(section.id)}" data-announcement-section class="h-4 w-4 rounded border-slate-300 text-indigo-600"> ${escapeHtml(section.name)}
+          </label>`).join("") || '<p class="py-2 text-xs font-normal text-slate-500">No sections are available for your role.</p>'}</div>
+        </div>
+      </details>
     </div>`;
+  }
+
+  function announcementSubjectCategoryField(offerings) {
+    return `<label class="hidden block text-xs font-semibold text-slate-600 sm:col-span-2" data-subject-category-container>
+      Subject subcategory<select name="subjectCategory" class="form-control mt-1.5" data-subject-category-select disabled>
+        <option value="">Select sections first</option>${[...new Set(offerings.map(offering => offering.subject))]
+          .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+          .map(subject => `<option value="${escapeHtml(subject)}">${escapeHtml(subject)}</option>`).join("")}
+      </select>
+    </label>`;
+  }
+
+  function updateAnnouncementTargetUI(form, offerings = announcementTargetOfferings()) {
+    const allSections = form.elements.allSections;
+    const sectionChecks = [...form.querySelectorAll("[data-announcement-section]")];
+    const selectedSectionIds = allSections?.checked
+      ? [...new Set(offerings.map(offering => offering.section_id))]
+      : sectionChecks.filter(check => check.checked).map(check => check.value);
+    sectionChecks.forEach(check => {
+      check.disabled = Boolean(allSections?.checked);
+    });
+
+    const summary = form.querySelector("[data-announcement-section-summary]");
+    if (summary) {
+      const names = selectedSectionIds
+        .map(id => state.sections.find(section => section.id === id)?.name)
+        .filter(Boolean);
+      summary.textContent = allSections?.checked
+        ? `All sections (${names.length})`
+        : names.length > 1 ? `${names.length} sections selected` : names[0] || "Select sections";
+    }
+
+    const category = form.elements.category?.value;
+    const subjectContainer = form.querySelector("[data-subject-category-container]");
+    const subjectSelect = form.querySelector("[data-subject-category-select]");
+    if (!subjectContainer || !subjectSelect) return;
+
+    const showingSubject = category === "Subject";
+    subjectContainer.classList.toggle("hidden", !showingSubject);
+    subjectSelect.disabled = !showingSubject;
+    subjectSelect.required = showingSubject;
+    if (!showingSubject) return;
+
+    const availableSubjects = selectedSectionIds.length && selectedSectionIds.every(sectionId =>
+      offerings.some(offering => offering.section_id === sectionId)
+    )
+      ? [...new Set(offerings
+        .filter(offering => selectedSectionIds.every(sectionId =>
+          offerings.some(candidate => candidate.section_id === sectionId && candidate.subject === offering.subject)
+        ))
+        .map(offering => offering.subject))]
+      : [];
+    const previousValue = subjectSelect.value;
+    subjectSelect.replaceChildren(new Option(
+      availableSubjects.length ? "Choose a subject" : "Choose sections with a shared subject",
+      ""
+    ));
+    availableSubjects
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+      .forEach(subject => subjectSelect.add(new Option(subject, subject)));
+    subjectSelect.value = availableSubjects.includes(previousValue) ? previousValue : "";
   }
 
   function announcementTargetsFromForm(form, offerings) {
@@ -865,13 +927,16 @@
       showToast("Choose at least one section or select all sections available to your role.", "error");
       return null;
     }
-    const targets = sectionIds.map(sectionId => {
-      const subjectSelect = [...form.querySelectorAll("[data-announcement-section-offering]")]
-        .find(select => select.dataset.announcementSectionOffering === sectionId);
-      return offerings.find(offering => offering.id === subjectSelect?.value && offering.section_id === sectionId);
-    });
+    const subject = form.elements.category.value === "Subject" ? form.elements.subjectCategory.value : null;
+    if (form.elements.category.value === "Subject" && !subject) {
+      showToast("Choose a subject subcategory for this announcement.", "error");
+      return null;
+    }
+    const targets = sectionIds.map(sectionId => offerings
+      .filter(offering => offering.section_id === sectionId && (!subject || offering.subject === subject))
+      .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" }))[0]);
     if (targets.some(target => !target)) {
-      showToast("Choose a subject for every selected section.", "error");
+      showToast("The selected subject is not available in every selected section. Choose fewer sections or another subject.", "error");
       return null;
     }
     return targets;
@@ -904,12 +969,12 @@
   function professorAnnouncementForm() {
     const offerings = professorAssignedOfferings();
     return `<form id="professor-announcement-form" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4">
-      <div class="mb-4 flex items-center justify-between"><div><h3 class="font-bold">New announcement</h3><p class="mt-1 text-xs text-slate-500">Select one or more sections, or choose all. Choose the subject to associate with the notice in each section.</p></div>${button("Cancel", "cancel-professor-announcement-form")}</div>
+      <div class="mb-4 flex items-center justify-between"><div><h3 class="font-bold">New announcement</h3><p class="mt-1 text-xs text-slate-500">Choose target sections. Select Subject as the category to choose a subject subcategory.</p></div>${button("Cancel", "cancel-professor-announcement-form")}</div>
       <div class="grid gap-3 sm:grid-cols-2">
         ${field("Title", "title", "", "text", true)}
         <label class="block text-xs font-semibold text-slate-600">Category<select name="category" class="form-control mt-1.5" data-announcement-category required>${["General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High", "Subject"].map(value => `<option>${value}</option>`).join("")}</select></label>
-        <p class="text-xs leading-5 text-slate-500 sm:col-span-2">Choose one or more sections or all assigned sections, then select a subject for each target section. If the category is Subject, each selected subject becomes that announcement’s category.</p>
         ${announcementTargetFields(offerings)}
+        ${announcementSubjectCategoryField(offerings)}
         <label class="flex items-center gap-2 text-sm font-medium text-slate-700 sm:col-span-2"><input type="checkbox" name="urgent" class="h-4 w-4 rounded border-slate-300 text-indigo-600"> Mark as urgent</label>
         <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required></textarea></label>
       </div>
@@ -1645,10 +1710,7 @@
   content.addEventListener("change", event => {
     const announcementCategory = event.target.closest("[data-announcement-category]");
     if (announcementCategory) {
-      const label = announcementCategory.form.querySelectorAll("[data-announcement-subject-label]");
-      label.forEach(item => {
-        item.textContent = announcementCategory.value === "Subject" ? "Subject category" : "Subject";
-      });
+      updateAnnouncementTargetUI(announcementCategory.form);
       const editSubjectContainer = announcementCategory.form.querySelector("[data-edit-subject-container]");
       const editSubjectSelect = announcementCategory.form.querySelector("[data-edit-subject-select]");
       if (editSubjectContainer) editSubjectContainer.classList.toggle("hidden", announcementCategory.value !== "Subject");
@@ -1682,20 +1744,17 @@
     }
     const allAnnouncementSections = event.target.closest("[data-announcement-all-sections]");
     if (allAnnouncementSections) {
-      const form = allAnnouncementSections.form;
-      const sectionChecks = [...form.querySelectorAll("[data-announcement-section]")];
-      sectionChecks.forEach(check => {
-        check.checked = false;
-        check.disabled = allAnnouncementSections.checked;
-        const subject = form.querySelector(`[data-announcement-section-offering="${check.value}"]`);
-        if (subject) subject.disabled = !allAnnouncementSections.checked;
-      });
+      if (allAnnouncementSections.checked) {
+        allAnnouncementSections.form.querySelectorAll("[data-announcement-section]").forEach(check => {
+          check.checked = false;
+        });
+      }
+      updateAnnouncementTargetUI(allAnnouncementSections.form);
       return;
     }
     const announcementSection = event.target.closest("[data-announcement-section]");
     if (announcementSection) {
-      const subject = announcementSection.form.querySelector(`[data-announcement-section-offering="${announcementSection.value}"]`);
-      if (subject) subject.disabled = !announcementSection.checked;
+      updateAnnouncementTargetUI(announcementSection.form);
       return;
     }
     const sectionOfferingSelect = event.target.closest("[data-offering-section-select]");
