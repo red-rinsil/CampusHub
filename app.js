@@ -158,10 +158,11 @@
     catch (error) { console.error("CampusHub could not save the selected class preference.", error); }
   }
 
-  function currentOfferingProfessors() {
+  function assignedProfessorNames(offeringId) {
     return state.offeringProfessors
-      .filter(item => item.offering_id === state.activeOfferingId)
-      .sort((a, b) => a.full_name.localeCompare(b.full_name, undefined, { sensitivity: "base" }));
+      .filter(item => item.offering_id === offeringId)
+      .map(item => item.full_name)
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
   }
 
   function readActiveOfferingPreference(userId) {
@@ -353,7 +354,7 @@
     const scoped = visibleCollections();
     const header = ["Type", "Subject", "Professor", "Classroom", "DayOfWeek", "Time", "EndTime", "Date", "Title", "Details", "ImportedBy", "ImportedAt"];
     const rows = scoped.schedules.map(item => [
-      "Class", item.subject, item.instructor, item.room, item.day, item.start, item.end, item.date || "", "", "",
+      "Class", item.subject, assignedProfessorNames(item.offeringId).join("; "), item.room, item.day, item.start, item.end, item.date || "", "", "",
       item.importedByName || item.importedBy || "", item.importedAt || ""
     ]);
     scoped.events.filter(item => ["Examination", "Quiz"].includes(item.type)).forEach(item => {
@@ -423,17 +424,12 @@
 
     result.records.forEach(record => {
       if (record.kind === "class") {
-        const professor = currentOfferingProfessors().find(item =>
-          item.full_name.trim().toLocaleLowerCase() === record.instructor.trim().toLocaleLowerCase()
-        );
         state.schedules.push({
           id: generateId("sch"),
           day: record.day,
           start: record.start,
           end: record.end,
           subject: record.subject,
-          instructor: record.instructor,
-          professorId: professor.profile_id,
           room: record.room,
           offeringId: offering.id,
           sectionId: offering.section_id,
@@ -524,12 +520,6 @@
         let valid = true;
         if (record.subject.trim().toLocaleLowerCase() !== offering.subject.trim().toLocaleLowerCase()) {
           result.errors.push(`Imported record ${record.line || index + 1}: subject "${record.subject}" does not match selected subject "${offering.subject}".`);
-          valid = false;
-        }
-        if (record.kind === "class" && !currentOfferingProfessors().some(professor =>
-          professor.full_name.trim().toLocaleLowerCase() === record.instructor.trim().toLocaleLowerCase()
-        )) {
-          result.errors.push(`Imported record ${record.line || index + 1}: professor "${record.instructor}" is not assigned to this subject.`);
           valid = false;
         }
         return valid;
@@ -664,7 +654,13 @@
       ${state.showScheduleForm ? scheduleForm(schedules.find(item => item.id === state.editingSchedule)) : ""}
       <section class="surface-card overflow-hidden"><div class="overflow-x-auto"><table class="w-full min-w-[720px] border-collapse text-left"><thead><tr class="bg-slate-50"><th class="w-32 border-b border-slate-200 px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500">Day</th>${times.map(time => `<th class="border-b border-slate-200 px-4 py-3 text-xs font-bold text-slate-500">${escapeHtml(time)}</th>`).join("")}</tr></thead><tbody>${days.map(day => `<tr class="border-b border-slate-100 last:border-0"><th class="px-4 py-3 text-sm font-bold text-slate-700">${day}</th>${times.map(time => {
         const matches = schedules.filter(item => item.day === day && item.start === time);
-        return `<td class="min-w-44 px-2 py-2 align-top">${matches.map(item => `<div class="rounded-lg border border-indigo-100 bg-indigo-50/70 p-3"><p class="text-xs font-bold text-indigo-800">${escapeHtml(item.subject)}</p><p class="mt-1 text-[11px] text-slate-600">${escapeHtml(item.start)}–${escapeHtml(item.end)}</p><p class="mt-2 text-[11px] text-slate-600">Professor: ${escapeHtml(item.instructor)}</p><p class="text-[11px] text-slate-500">${escapeHtml(item.room)}</p>${canEdit ? `<div class="mt-2 flex gap-1">${button("Edit", "edit-schedule", `data-id="${item.id}"`)}${button("Delete", "delete-schedule", `data-id="${item.id}"`, "btn-danger")}</div>` : ""}</div>`).join("")}</td>`;
+        return `<td class="min-w-44 px-2 py-2 align-top">${matches.map(item => {
+          const assignedProfessors = assignedProfessorNames(item.offeringId);
+          const professorNames = assignedProfessors.length
+            ? assignedProfessors.join(", ")
+            : item.offeringId ? "No professor assigned" : item.instructor || "No professor assigned";
+          return `<div class="rounded-lg border border-indigo-100 bg-indigo-50/70 p-3"><p class="text-xs font-bold text-indigo-800">${escapeHtml(item.subject)}</p><p class="mt-1 text-[11px] text-slate-600">${escapeHtml(item.start)}–${escapeHtml(item.end)}</p><p class="mt-2 text-[11px] text-slate-600">Professor: ${escapeHtml(professorNames)}</p><p class="text-[11px] text-slate-500">${escapeHtml(item.room)}</p>${canEdit ? `<div class="mt-2 flex gap-1">${button("Edit", "edit-schedule", `data-id="${item.id}"`)}${button("Delete", "delete-schedule", `data-id="${item.id}"`, "btn-danger")}</div>` : ""}</div>`;
+        }).join("")}</td>`;
       }).join("")}</tr>`).join("")}</tbody></table></div></section>
       <section class="surface-card mt-6 p-5 sm:p-6"><div class="flex items-center justify-between"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-slate-500">Audit trail</p><h3 class="mt-1 text-lg font-bold">Schedule change history</h3></div><span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">${history.length} updates</span></div>
         <div class="mt-4 divide-y divide-slate-100">${history.length ? history.slice(0, 8).map(item => `<div class="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between"><p class="text-sm font-medium text-slate-700">${escapeHtml(item.text)}</p><p class="text-xs text-slate-500">${escapeHtml(item.actor)} · ${formatDate(item.at, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p></div>`).join("") : emptyState("No changes yet", "Schedule updates will be recorded here.")}</div>
@@ -693,14 +689,9 @@
 
   function scheduleForm(item = null) {
     const subject = item?.subject || currentOffering()?.subject || "";
-    const professors = currentOfferingProfessors();
-    const selectedProfessorId = item?.professorId || professors.find(professor =>
-      professor.full_name === item?.instructor
-    )?.profile_id || "";
     return `<form id="schedule-form" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">${item ? "Edit class" : "Add a class"}</h3>${button("Cancel", "cancel-schedule-form")}</div>
       <input type="hidden" name="id" value="${item ? escapeHtml(item.id) : ""}"><div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       <label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" readonly required value="${escapeHtml(subject)}"></label>
-      <label class="block text-xs font-semibold text-slate-600">Professor<select class="form-control mt-1.5" name="professorId" required ${professors.length ? "" : "disabled"}><option value="">${professors.length ? "Select an assigned professor" : "Assign a professor to this subject first"}</option>${professors.map(professor => `<option value="${escapeHtml(professor.profile_id)}" ${professor.profile_id === selectedProfessorId ? "selected" : ""}>${escapeHtml(professor.full_name)}</option>`).join("")}</select></label>
       <label class="block text-xs font-semibold text-slate-600">Classroom<input class="form-control mt-1.5" name="room" required value="${item ? escapeHtml(item.room) : ""}"></label>
       <label class="block text-xs font-semibold text-slate-600">Day<select name="day" class="form-control mt-1.5">${["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map(day => `<option ${item?.day === day ? "selected" : ""}>${day}</option>`).join("")}</select></label>
       <label class="block text-xs font-semibold text-slate-600">Start time<input class="form-control mt-1.5" type="time" name="start" required value="${item ? escapeHtml(item.start) : "09:00"}"></label>
@@ -1697,18 +1688,16 @@
     } else if (formId === "schedule-form") {
       if (!requireRole(["professor", "officer", "admin"])) return;
       if (values.start >= values.end) return showToast("End time must be later than start time.", "error");
-      const professor = currentOfferingProfessors().find(item => item.profile_id === values.professorId);
-      if (!professor) return showToast("Choose a professor assigned to this subject.", "error");
       const previous = values.id ? state.schedules.find(item => item.id === values.id) : null;
       if (previous) {
         if (previous.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this schedule.", "error");
-        Object.assign(previous, { day: values.day, start: values.start, end: values.end, subject: values.subject.trim(), instructor: professor.full_name, professorId: professor.profile_id, room: values.room.trim() });
+        Object.assign(previous, { day: values.day, start: values.start, end: values.end, subject: values.subject.trim(), room: values.room.trim() });
         recordScheduleChange(`${previous.subject} updated: ${previous.day}, ${previous.start}–${previous.end}, ${previous.room}`);
         showToast("Timetable updated.");
       } else {
         const offering = currentOffering();
         if (!offering) return showToast("Select an assigned class before editing the timetable.", "error");
-        const created = { id: generateId("sch"), day: values.day, start: values.start, end: values.end, subject: values.subject.trim(), instructor: professor.full_name, professorId: professor.profile_id, room: values.room.trim(), offeringId: offering.id, sectionId: offering.section_id };
+        const created = { id: generateId("sch"), day: values.day, start: values.start, end: values.end, subject: values.subject.trim(), room: values.room.trim(), offeringId: offering.id, sectionId: offering.section_id };
         state.schedules.push(created); recordScheduleChange(`${created.subject} added to ${created.day}, ${created.start}–${created.end}`);
         showToast("Class added to timetable.");
       }

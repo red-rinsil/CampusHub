@@ -127,7 +127,6 @@
       if (type === "class") {
         const day = DAYS.find(value => value.toLowerCase() === dayInput.toLowerCase());
         if (!day) rowErrors.push("DayOfWeek must be a full weekday name (Monday–Sunday).");
-        if (!instructor) rowErrors.push("Professor is required for class schedules.");
         if (!endTime || !/^([01]\d|2[0-3]):[0-5]\d$/.test(endTime)) rowErrors.push('EndTime must use 24-hour HH:MM format.');
         else if (time && /^([01]\d|2[0-3]):[0-5]\d$/.test(time) && endTime <= time) rowErrors.push("EndTime must be later than Time.");
         if (date && !validDate(date)) rowErrors.push('Date must use a real calendar date in YYYY-MM-DD format.');
@@ -138,7 +137,6 @@
           kind: "class",
           line,
           subject,
-          instructor,
           room,
           day,
           start: time,
