@@ -138,6 +138,23 @@
       state.sections.some(section => section.id === item.section_id && section.active)) || null;
   }
 
+  function offeringSelectionFields(selectedOfferingId) {
+    const offerings = availableOfferings().sort((a, b) => {
+      const sectionA = state.sections.find(section => section.id === a.section_id)?.name || "";
+      const sectionB = state.sections.find(section => section.id === b.section_id)?.name || "";
+      return sectionA.localeCompare(sectionB, undefined, { sensitivity: "base" }) ||
+        a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" });
+    });
+    const selectedOffering = offerings.find(item => item.id === selectedOfferingId) || offerings[0];
+    const sections = [...new Set(offerings.map(item => item.section_id))]
+      .map(id => state.sections.find(section => section.id === id))
+      .filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    const sectionId = selectedOffering?.section_id || "";
+    return `<label class="block text-xs font-semibold text-slate-600">Section<select class="form-control mt-1.5" name="sectionId" data-offering-section-select required ${sections.length ? "" : "disabled"}><option value="">Select a section</option>${sections.map(section => `<option value="${escapeHtml(section.id)}" ${section.id === sectionId ? "selected" : ""}>${escapeHtml(section.name)}</option>`).join("")}</select></label>
+      <label class="block text-xs font-semibold text-slate-600">Subject<select class="form-control mt-1.5" name="offeringId" data-offering-select required ${selectedOffering ? "" : "disabled"}><option value="">Select a subject</option>${offerings.filter(item => item.section_id === sectionId).map(offering => `<option value="${escapeHtml(offering.id)}" ${offering.id === selectedOffering?.id ? "selected" : ""}>${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</option>`).join("")}</select></label>`;
+  }
+
   function availableOfferings() {
     return state.offerings.filter(offering => offering.active &&
       state.sections.some(section => section.id === offering.section_id && section.active));
@@ -610,13 +627,13 @@
 
   function announcementForm(item = null) {
     const editing = Boolean(item);
-    const subject = item?.subject || currentOffering()?.subject || "";
+    const selectedOfferingId = item?.offeringId || state.activeOfferingId;
     return `<form id="announcement-form" class="mt-5 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
       <div class="mb-4 flex items-center justify-between"><h4 class="font-bold">${editing ? "Edit announcement" : "New announcement"}</h4>${button("Cancel", "cancel-announcement-form")}</div>
       <input type="hidden" name="id" value="${editing ? escapeHtml(item.id) : ""}">
       <div class="grid gap-3 sm:grid-cols-2">
         ${field("Title", "title", item?.title, "text", true)}
-        <label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" readonly required value="${escapeHtml(subject)}"></label>
+        ${offeringSelectionFields(selectedOfferingId)}
         <label class="block text-xs font-semibold text-slate-600">Category<select name="category" class="form-control mt-1.5" required>${["General", "Exam Notice", "Class Cancellation", "Deadline"].map(value => `<option ${item?.category === value ? "selected" : ""}>${value}</option>`).join("")}</select></label>
         <label class="flex items-center gap-2 self-end pb-3 text-sm font-medium text-slate-700"><input type="checkbox" name="urgent" class="h-4 w-4 rounded border-slate-300 text-indigo-600" ${item?.urgent ? "checked" : ""}> Mark as urgent</label>
         <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required>${editing ? escapeHtml(item.content) : ""}</textarea></label>
@@ -688,10 +705,9 @@
   }
 
   function scheduleForm(item = null) {
-    const subject = item?.subject || currentOffering()?.subject || "";
     return `<form id="schedule-form" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">${item ? "Edit class" : "Add a class"}</h3>${button("Cancel", "cancel-schedule-form")}</div>
       <input type="hidden" name="id" value="${item ? escapeHtml(item.id) : ""}"><div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      <label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" readonly required value="${escapeHtml(subject)}"></label>
+      ${offeringSelectionFields(item?.offeringId || state.activeOfferingId)}
       <label class="block text-xs font-semibold text-slate-600">Classroom<input class="form-control mt-1.5" name="room" required value="${item ? escapeHtml(item.room) : ""}"></label>
       <label class="block text-xs font-semibold text-slate-600">Day<select name="day" class="form-control mt-1.5">${["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map(day => `<option ${item?.day === day ? "selected" : ""}>${day}</option>`).join("")}</select></label>
       <label class="block text-xs font-semibold text-slate-600">Start time<input class="form-control mt-1.5" type="time" name="start" required value="${item ? escapeHtml(item.start) : "09:00"}"></label>
@@ -714,11 +730,10 @@
     const eventTypes = examOnly ? ["Examination", "Quiz"] : ["Quiz", "Examination", "Project Deadline", "Consultation", "Special Class"];
     const formId = examOnly ? "exam-event-form" : "event-form";
     const formTitle = examOnly ? "exam" : "calendar item";
-    const subject = item?.subject || currentOffering()?.subject || "";
     return `<form id="${formId}" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">${item ? `Edit ${formTitle}` : `Add ${formTitle}`}</h3>${button("Cancel", examOnly ? "cancel-exam-form" : "cancel-event-form")}</div>
       <input type="hidden" name="id" value="${item ? escapeHtml(item.id) : ""}"><div class="grid gap-3 sm:grid-cols-2">
       <label class="block text-xs font-semibold text-slate-600">Title<input class="form-control mt-1.5" name="title" required value="${item ? escapeHtml(item.title) : ""}"></label>
-      <label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" readonly required value="${escapeHtml(subject)}"></label>
+      ${offeringSelectionFields(item?.offeringId || state.activeOfferingId)}
       <label class="block text-xs font-semibold text-slate-600">Type<select name="type" class="form-control mt-1.5">${eventTypes.map(type => `<option ${item?.type === type ? "selected" : ""}>${type}</option>`).join("")}</select></label>
       <label class="block text-xs font-semibold text-slate-600">Date and time<input class="form-control mt-1.5" type="datetime-local" name="date" required value="${item ? escapeHtml(new Date(new Date(item.date).getTime() - new Date(item.date).getTimezoneOffset() * 60000).toISOString().slice(0, 16)) : ""}"></label>
       <label class="block text-xs font-semibold text-slate-600">Location<input class="form-control mt-1.5" name="location" required value="${item ? escapeHtml(item.location) : ""}"></label>
@@ -1210,8 +1225,12 @@
     return Object.fromEntries(new FormData(form).entries());
   }
 
-  function recordScheduleChange(description) {
-    const offering = currentOffering();
+  function offeringFromForm(values) {
+    const offering = availableOfferings().find(item => item.id === values.offeringId);
+    return offering?.section_id === values.sectionId ? offering : null;
+  }
+
+  function recordScheduleChange(description, offering = currentOffering()) {
     state.scheduleHistory.unshift({
       id: generateId("hist"),
       text: description,
@@ -1310,6 +1329,26 @@
     if (event.target.id === "announcement-filter") {
       state.announcementFilter = event.target.value;
       render();
+      return;
+    }
+    const sectionOfferingSelect = event.target.closest("[data-offering-section-select]");
+    if (sectionOfferingSelect) {
+      const form = sectionOfferingSelect.form;
+      const subjectSelect = form?.querySelector("[data-offering-select]");
+      if (!subjectSelect) return;
+      const offerings = availableOfferings()
+        .filter(item => item.section_id === sectionOfferingSelect.value)
+        .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" }));
+      subjectSelect.replaceChildren(new Option("Select a subject", ""));
+      offerings.forEach(offering => {
+        const option = new Option(
+          `${offering.subject}${offering.course_code ? ` (${offering.course_code})` : ""}`,
+          offering.id
+        );
+        subjectSelect.add(option);
+      });
+      subjectSelect.disabled = offerings.length === 0;
+      if (offerings.length === 1) subjectSelect.value = offerings[0].id;
       return;
     }
     const roleSelect = event.target.closest("[data-user-role]");
@@ -1672,53 +1711,59 @@
       }
     } else if (formId === "announcement-form") {
       if (!requireRole(["professor", "officer", "admin"])) return;
+      const targetOffering = offeringFromForm(values);
+      if (!targetOffering) return showToast("Choose an active subject in a section you can manage.", "error");
       if (values.id) {
         const item = state.announcements.find(entry => entry.id === values.id);
         if (!item || !(state.activeRole === "admin" || item.authorRole === state.activeRole)) return showToast("You cannot edit this announcement.", "error");
         if (item.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this announcement.", "error");
-        Object.assign(item, { title: values.title.trim(), subject: values.subject.trim(), category: values.category, content: values.content.trim(), urgent: form.elements.urgent.checked });
+        Object.assign(item, { title: values.title.trim(), subject: targetOffering.subject, category: values.category, content: values.content.trim(), urgent: form.elements.urgent.checked, offeringId: targetOffering.id, sectionId: targetOffering.section_id });
         showToast("Announcement updated.");
       } else {
-        const offering = currentOffering();
-        if (!offering) return showToast("Select an assigned class before publishing.", "error");
-        state.announcements.unshift({ id: generateId("ann"), title: values.title.trim(), subject: values.subject.trim(), category: values.category, content: values.content.trim(), urgent: form.elements.urgent.checked, author: currentUser()?.name || roles[state.activeRole].name, authorRole: state.activeRole, createdAt: new Date().toISOString(), archived: false, acknowledgments: [], offeringId: offering.id, sectionId: offering.section_id });
+        state.announcements.unshift({ id: generateId("ann"), title: values.title.trim(), subject: targetOffering.subject, category: values.category, content: values.content.trim(), urgent: form.elements.urgent.checked, author: currentUser()?.name || roles[state.activeRole].name, authorRole: state.activeRole, createdAt: new Date().toISOString(), archived: false, acknowledgments: [], offeringId: targetOffering.id, sectionId: targetOffering.section_id });
         showToast("Announcement published.");
       }
+      state.activeOfferingId = targetOffering.id;
+      persistActiveOffering();
       state.showAnnouncementForm = false; state.editingAnnouncement = null; saveState(); render();
     } else if (formId === "schedule-form") {
       if (!requireRole(["professor", "officer", "admin"])) return;
       if (values.start >= values.end) return showToast("End time must be later than start time.", "error");
+      const targetOffering = offeringFromForm(values);
+      if (!targetOffering) return showToast("Choose an active subject in a section you can manage.", "error");
       const previous = values.id ? state.schedules.find(item => item.id === values.id) : null;
       if (previous) {
         if (previous.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this schedule.", "error");
-        Object.assign(previous, { day: values.day, start: values.start, end: values.end, subject: values.subject.trim(), room: values.room.trim() });
-        recordScheduleChange(`${previous.subject} updated: ${previous.day}, ${previous.start}–${previous.end}, ${previous.room}`);
+        Object.assign(previous, { day: values.day, start: values.start, end: values.end, subject: targetOffering.subject, room: values.room.trim(), offeringId: targetOffering.id, sectionId: targetOffering.section_id });
+        recordScheduleChange(`${previous.subject} updated: ${previous.day}, ${previous.start}–${previous.end}, ${previous.room}`, targetOffering);
         showToast("Timetable updated.");
       } else {
-        const offering = currentOffering();
-        if (!offering) return showToast("Select an assigned class before editing the timetable.", "error");
-        const created = { id: generateId("sch"), day: values.day, start: values.start, end: values.end, subject: values.subject.trim(), room: values.room.trim(), offeringId: offering.id, sectionId: offering.section_id };
-        state.schedules.push(created); recordScheduleChange(`${created.subject} added to ${created.day}, ${created.start}–${created.end}`);
+        const created = { id: generateId("sch"), day: values.day, start: values.start, end: values.end, subject: targetOffering.subject, room: values.room.trim(), offeringId: targetOffering.id, sectionId: targetOffering.section_id };
+        state.schedules.push(created); recordScheduleChange(`${created.subject} added to ${created.day}, ${created.start}–${created.end}`, targetOffering);
         showToast("Class added to timetable.");
       }
+      state.activeOfferingId = targetOffering.id;
+      persistActiveOffering();
       state.showScheduleForm = false; state.editingSchedule = null; saveState(); render();
     } else if (formId === "event-form" || formId === "exam-event-form") {
       if (!requireRole(["professor", "admin"])) return;
       if (formId === "exam-event-form" && !["Examination", "Quiz"].includes(values.type)) return showToast("Choose an exam or quiz type.", "error");
+      const targetOffering = offeringFromForm(values);
+      if (!targetOffering) return showToast("Choose an active subject in a section you can manage.", "error");
       const date = new Date(values.date);
       if (Number.isNaN(date.getTime())) return showToast("Enter a valid date and time.", "error");
-      const update = { title: values.title.trim(), type: values.type, subject: values.subject.trim(), date: date.toISOString(), location: values.location.trim(), details: values.details.trim() };
+      const update = { title: values.title.trim(), type: values.type, subject: targetOffering.subject, date: date.toISOString(), location: values.location.trim(), details: values.details.trim(), offeringId: targetOffering.id, sectionId: targetOffering.section_id };
       const existing = values.id ? state.events.find(item => item.id === values.id) : null;
       if (existing) {
         if (existing.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this calendar item.", "error");
         Object.assign(existing, update); showToast("Calendar item updated.");
       }
       else {
-        const offering = currentOffering();
-        if (!offering) return showToast("Select an assigned class before adding an academic date.", "error");
-        state.events.push({ id: generateId("evt"), ...update, offeringId: offering.id, sectionId: offering.section_id });
+        state.events.push({ id: generateId("evt"), ...update });
         showToast("Calendar item added.");
       }
+      state.activeOfferingId = targetOffering.id;
+      persistActiveOffering();
       if (formId === "exam-event-form") { state.showExamForm = false; state.editingExam = null; }
       else { state.showEventForm = false; state.editingEvent = null; }
       saveState(); render();
