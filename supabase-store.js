@@ -46,14 +46,14 @@
       throw new Error("Your sign-in exists, but its CampusHub profile is missing. Run the profile repair SQL in README.md, then sign out and back in.");
     }
     if (!ownProfile.active) throw new Error("Your CampusHub account has been deactivated. Contact an administrator.");
-    const [announcements, schedules, events, scheduleHistory, acknowledgments, profiles, membership, sections] = await Promise.all([
+    const [announcements, schedules, events, scheduleHistory, acknowledgments, profiles, memberships, sections] = await Promise.all([
       fetchRows(tables.announcements),
       fetchRows(tables.schedules),
       fetchRows(tables.events),
       fetchRows(tables.scheduleHistory),
       unwrap(await client.from("announcement_acknowledgments").select("announcement_id,user_id")),
       isAdmin || ownProfile.role === "admin" ? fetchRows("campus_profiles") : Promise.resolve([]),
-      unwrap(await client.from("section_memberships").select("section_id").eq("profile_id", userId).maybeSingle()),
+      unwrap(await client.from("section_memberships").select("profile_id,section_id")),
       fetchRows("campus_sections")
     ]);
     const offerings = unwrap(await client.from("class_offerings").select("id,section_id,subject,course_code,active"));
@@ -61,6 +61,10 @@
     const assignments = offeringIds.length
       ? unwrap(await client.from("offering_staff").select("offering_id,profile_id,staff_role").in("offering_id", offeringIds))
       : [];
+    const [sectionOfficers, enrollments] = await Promise.all([
+      unwrap(await client.from("section_officers").select("section_id,profile_id")),
+      unwrap(await client.from("offering_enrollments").select("offering_id,profile_id"))
+    ]);
     const studentCounts = await Promise.all(offerings.map(async offering => [
       offering.id,
       unwrap(await client.rpc("active_offering_student_count", { p_offering_id: offering.id }))
@@ -89,10 +93,13 @@
       schedules: schedules.map(row => ({ ...row.payload, offeringId: row.offering_id, sectionId: row.section_id })),
       events: events.map(row => ({ ...row.payload, offeringId: row.offering_id, sectionId: row.section_id })),
       scheduleHistory: scheduleHistory.map(row => ({ ...row.payload, offeringId: row.offering_id, sectionId: row.section_id })),
-      membership,
+      membership: memberships.find(item => item.profile_id === userId) || null,
+      sectionMemberships: memberships,
       sections,
       offerings,
       assignments,
+      sectionOfficers,
+      enrollments,
       studentCounts: Object.fromEntries(studentCounts)
     };
     lastSynced = structuredClone({
@@ -215,6 +222,23 @@
     }));
   }
 
+  async function assignSectionOfficer(sectionId, profileId) {
+    assertReady();
+    return unwrap(await client.rpc("assign_section_officer", {
+      p_section_id: sectionId,
+      p_profile_id: profileId || null
+    }));
+  }
+
+  async function setOfferingEnrollment(offeringId, profileId, enrolled) {
+    assertReady();
+    return unwrap(await client.rpc("set_offering_enrollment", {
+      p_offering_id: offeringId,
+      p_profile_id: profileId,
+      p_enrolled: enrolled
+    }));
+  }
+
   async function inviteUser(name, email) {
     assertReady();
     return unwrap(await client.functions.invoke("admin-create-user", {
@@ -259,6 +283,8 @@
     createOffering,
     assignStaff,
     setSectionActive,
+    assignSectionOfficer,
+    setOfferingEnrollment,
     inviteUser,
     changePassword,
     watch

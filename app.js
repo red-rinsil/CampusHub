@@ -42,9 +42,12 @@
     currentUserId: null,
     studentCount: 0,
     membership: null,
+    sectionMemberships: [],
     sections: [],
     offerings: [],
     assignments: [],
+    sectionOfficers: [],
+    enrollments: [],
     studentCounts: {},
     activeOfferingId: null,
     roleKeys: [],
@@ -245,7 +248,7 @@
     renderOfferingContext();
     document.getElementById("page-heading").textContent = pageTitle();
     renderNav();
-    if (!state.offerings.length && !(state.activeTab === "management" && state.activeRole === "admin")) {
+    if (!state.offerings.length && state.activeTab !== "settings" && !(state.activeTab === "management" && state.activeRole === "admin")) {
       const joinAction = state.activeRole === "student" && !state.membership
         ? button("Join a section", "open-section-join", "", "btn-primary")
         : "";
@@ -505,7 +508,7 @@
         ${metricCard("Upcoming academic dates", nextEvents.length, "Across exams, quizzes & deadlines", "text-indigo-600", "calendar")}
         ${metricCard("Active announcements", scoped.announcements.filter(item => !item.archived).length, "Updates from your campus", "text-violet-600", "bell")}
         ${metricCard("Unread updates", unread, "Not yet acknowledged by you", "text-amber-600", "clock")}
-        ${metricCard("Students in this cohort", studentCount, "Acknowledgment audience", "text-emerald-600", "users")}
+        ${metricCard("Students in this subject", studentCount, "Enrolled in this offering", "text-emerald-600", "users")}
       </div>
       <section class="mt-5 rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50 to-violet-50 p-5 sm:p-6">
         <p class="text-xs font-bold uppercase tracking-[.14em] text-indigo-700">A more connected campus</p>
@@ -688,17 +691,29 @@
     const activeUsers = state.users.filter(user => user.active);
     const sections = state.sections;
     return `<section class="surface-card mb-5 p-4 sm:p-5">
-      <div><p class="text-xs font-bold uppercase tracking-wider text-indigo-600">Class structure</p><h3 class="mt-1 text-lg font-bold">Sections, blocks & class offerings</h3><p class="mt-1 text-xs leading-5 text-slate-500">A section is a student cohort. Each subject taught to that cohort is a class offering with its own schedule, assessments, and announcements.</p></div>
+      <div><p class="text-xs font-bold uppercase tracking-wider text-indigo-600">Class structure</p><h3 class="mt-1 text-lg font-bold">Sections, blocks & class offerings</h3><p class="mt-1 text-xs leading-5 text-slate-500">Assign one class officer to each section. Professors are assigned per subject offering; students can be enrolled in only the subjects they take.</p></div>
       <form id="section-form" class="mt-4 flex flex-wrap items-end gap-3"><label class="block min-w-56 flex-1 text-xs font-semibold text-slate-600">New section/block name<input class="form-control mt-1.5" name="name" maxlength="80" placeholder="BSIT 2A" required></label><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white">Create section & key</button></form>
       <div class="mt-4 space-y-4">${sections.length ? sections.map(section => {
         const offerings = state.offerings.filter(item => item.section_id === section.id);
-        return `<article class="rounded-xl border border-slate-200 p-4"><div class="flex flex-wrap items-center justify-between gap-3"><div><h4 class="font-bold">${escapeHtml(section.name)}</h4><p class="mt-1 text-xs text-slate-500">${offerings.length} class offering(s) · ${section.active ? "Active" : "Inactive"}</p></div><div class="flex gap-2">${section.active ? button("Rotate join key", "rotate-section-key", `data-id="${section.id}"`) : ""}${button(section.active ? "Deactivate" : "Reactivate", "toggle-section-active", `data-id="${section.id}"`, section.active ? "btn-danger" : "btn-secondary")}</div></div>
+        const sectionOfficer = state.sectionOfficers.find(item => item.section_id === section.id);
+        const officer = state.users.find(user => user.id === sectionOfficer?.profile_id);
+        const sectionStudents = state.sectionMemberships
+          .filter(item => item.section_id === section.id)
+          .map(item => activeUsers.find(user => user.id === item.profile_id && user.role === "student"))
+          .filter(Boolean);
+        const officerOptions = activeUsers.filter(user => user.role === "officer");
+        return `<article class="rounded-xl border border-slate-200 p-4"><div class="flex flex-wrap items-center justify-between gap-3"><div><h4 class="font-bold">${escapeHtml(section.name)}</h4><p class="mt-1 text-xs text-slate-500">${offerings.length} class offering(s) · ${sectionStudents.length} active student(s) · ${section.active ? "Active" : "Inactive"}</p></div><div class="flex gap-2">${section.active ? button("Rotate join key", "rotate-section-key", `data-id="${section.id}"`) : ""}${button(section.active ? "Deactivate" : "Reactivate", "toggle-section-active", `data-id="${section.id}"`, section.active ? "btn-danger" : "btn-secondary")}</div></div>
+          <form id="section-officer-form-${section.id}" data-section-id="${section.id}" class="mt-4 flex flex-wrap items-center gap-2"><label class="min-w-48 flex-1 text-xs font-semibold text-slate-600">Section class officer<select class="form-control mt-1 py-2 text-xs" name="profileId" required><option value="">Select one class officer</option>${officerOptions.map(person => `<option value="${person.id}" ${person.id === officer?.id ? "selected" : ""}>${escapeHtml(person.name)} (${escapeHtml(person.email)})</option>`).join("")}</select></label><button class="mt-4 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Assign / replace officer</button>${officer ? `${button("Remove officer", "clear-section-officer", `data-id="${section.id}"`, "btn-danger")}<span class="text-xs text-slate-500">${officer.active ? "" : "Assigned account is inactive"}</span>` : ""}</form>
           <form id="offering-form-${section.id}" data-section-id="${section.id}" class="mt-4 grid gap-2 sm:grid-cols-[1fr_12rem_auto]"><label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" maxlength="120" placeholder="Data Structures" required></label><label class="block text-xs font-semibold text-slate-600">Course code (optional)<input class="form-control mt-1.5" name="courseCode" maxlength="32" placeholder="CS201"></label><button class="self-end rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" ${section.active ? "" : "disabled"}>Add offering</button></form>
-          <div class="mt-3 space-y-3">${offerings.map(offering => `<div class="rounded-lg bg-slate-50 p-3"><div class="flex flex-wrap items-center justify-between gap-2"><p class="text-sm font-semibold">${escapeHtml(offering.subject)}${offering.course_code ? ` · ${escapeHtml(offering.course_code)}` : ""}</p><span class="text-xs text-slate-500">${offering.active ? "Active" : "Inactive"}</span></div>${["professor", "officer"].map(role => {
-          const assigned = state.assignments.filter(item => item.offering_id === offering.id && item.staff_role === role);
-          const options = activeUsers.filter(user => user.role === role);
-          return `<form id="staff-assignment-form-${offering.id}-${role}" data-offering-id="${offering.id}" data-staff-role="${role}" class="mt-2 flex flex-wrap items-center gap-2"><span class="w-24 text-xs font-medium text-slate-600">${roles[role].label}</span><select class="form-control min-w-48 flex-1 py-2 text-xs" name="profileId" required><option value="">Assign ${roles[role].label.toLowerCase()}</option>${options.map(user => `<option value="${user.id}">${escapeHtml(user.name)} (${escapeHtml(user.email)})</option>`).join("")}</select><button class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Assign</button>${assigned.map(item => { const person = activeUsers.find(user => user.id === item.profile_id); return person ? `<span class="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-xs text-slate-600">${escapeHtml(person.name)}${button("×", "remove-offering-staff", `data-offering-id="${offering.id}" data-profile-id="${person.id}" data-role="${role}"`, "btn-danger")}</span>` : ""; }).join("")}</form>`;
-        }).join("")}</div>`).join("") || '<p class="mt-3 text-xs text-slate-500">No offerings created for this section yet.</p>'}</div>
+          <div class="mt-3 space-y-3">${offerings.map(offering => {
+            const assigned = state.assignments.filter(item => item.offering_id === offering.id && item.staff_role === "professor");
+            const enrolledIds = new Set(state.enrollments.filter(item => item.offering_id === offering.id).map(item => item.profile_id));
+            const candidates = sectionStudents.filter(person => !enrolledIds.has(person.id));
+            const enrolled = sectionStudents.filter(person => enrolledIds.has(person.id));
+            return `<div class="rounded-lg bg-slate-50 p-3"><div class="flex flex-wrap items-center justify-between gap-2"><p class="text-sm font-semibold">${escapeHtml(offering.subject)}${offering.course_code ? ` · ${escapeHtml(offering.course_code)}` : ""}</p><span class="text-xs text-slate-500">${offering.active ? "Active" : "Inactive"}</span></div>
+              <form id="staff-assignment-form-${offering.id}-professor" data-offering-id="${offering.id}" data-staff-role="professor" class="mt-2 flex flex-wrap items-center gap-2"><span class="w-24 text-xs font-medium text-slate-600">Professor</span><select class="form-control min-w-48 flex-1 py-2 text-xs" name="profileId" required><option value="">Assign professor</option>${activeUsers.filter(person => person.role === "professor").map(person => `<option value="${person.id}">${escapeHtml(person.name)} (${escapeHtml(person.email)})</option>`).join("")}</select><button class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Assign</button>${assigned.map(item => { const person = activeUsers.find(user => user.id === item.profile_id); return person ? `<span class="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-xs text-slate-600">${escapeHtml(person.name)}${button("×", "remove-offering-staff", `data-offering-id="${offering.id}" data-profile-id="${person.id}" data-role="professor"`, "btn-danger")}</span>` : ""; }).join("")}</form>
+              <div class="mt-3 border-t border-slate-200 pt-3"><p class="text-xs font-semibold text-slate-700">Enrolled students (${enrolled.length})</p><form id="enrollment-form-${offering.id}" data-offering-id="${offering.id}" class="mt-2 flex flex-wrap items-center gap-2"><select class="form-control min-w-48 flex-1 py-2 text-xs" name="profileId" ${candidates.length ? "required" : "disabled"}><option value="">${candidates.length ? "Add a student taking this subject" : "All section students are enrolled"}</option>${candidates.map(person => `<option value="${person.id}">${escapeHtml(person.name)} (${escapeHtml(person.email)})</option>`).join("")}</select><button class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700" ${candidates.length && offering.active ? "" : "disabled"}>Enroll student</button></form><div class="mt-2 flex flex-wrap gap-2">${enrolled.map(person => `<span class="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1 pl-2.5 pr-1 text-xs text-slate-600">${escapeHtml(person.name)}${button("×", "remove-offering-student", `data-offering-id="${offering.id}" data-profile-id="${person.id}"`, "btn-danger")}</span>`).join("") || '<span class="text-xs text-slate-500">No students enrolled in this subject.</span>'}</div></div></div>`;
+          }).join("") || '<p class="mt-3 text-xs text-slate-500">No offerings created for this section yet.</p>'}</div>
         </article>`;
       }).join("") : emptyState("No sections created", "Create a section/block, then add its subject offerings and assign staff.")}</div>
       <div id="section-key-container" class="mt-4 hidden rounded-xl border border-emerald-200 bg-emerald-50 p-4"><p class="text-xs font-semibold text-emerald-800">Share this reusable section key with students in this block</p><input id="section-key-output" class="form-control mt-2 font-mono" readonly></div>
@@ -838,9 +853,12 @@
       state.events = data.events;
       state.scheduleHistory = data.scheduleHistory;
       state.membership = data.membership;
+      state.sectionMemberships = data.sectionMemberships;
       state.sections = data.sections;
       state.offerings = data.offerings;
       state.assignments = data.assignments;
+      state.sectionOfficers = data.sectionOfficers;
+      state.enrollments = data.enrollments;
       state.studentCounts = data.studentCounts;
       let preferenceOffering = null;
       try { preferenceOffering = sessionStorage.getItem("campushub-active-offering"); }
@@ -863,9 +881,12 @@
               state.events = latest.events;
               state.scheduleHistory = latest.scheduleHistory;
               state.membership = latest.membership;
+              state.sectionMemberships = latest.sectionMemberships;
               state.sections = latest.sections;
               state.offerings = latest.offerings;
               state.assignments = latest.assignments;
+              state.sectionOfficers = latest.sectionOfficers;
+              state.enrollments = latest.enrollments;
               state.studentCounts = latest.studentCounts;
               if (!latest.offerings.some(item => item.id === state.activeOfferingId)) {
                 state.activeOfferingId = latest.offerings[0]?.id || null;
@@ -1243,6 +1264,28 @@
           showToast(error.message || "Staff assignment could not be removed.", "error");
         }
         break;
+      case "clear-section-officer":
+        if (!requireRole(["admin"])) return;
+        try {
+          await window.CampusHubStore.assignSectionOfficer(id, null);
+          await refreshSharedData();
+          showToast("The section officer assignment was removed.");
+        } catch (error) {
+          console.error("CampusHub could not remove the section officer.", error);
+          showToast(error.message || "The section officer could not be removed.", "error");
+        }
+        break;
+      case "remove-offering-student":
+        if (!requireRole(["admin"])) return;
+        try {
+          await window.CampusHubStore.setOfferingEnrollment(control.dataset.offeringId, control.dataset.profileId, false);
+          await refreshSharedData();
+          showToast("The student was removed from this subject.");
+        } catch (error) {
+          console.error("CampusHub could not remove the student from the subject.", error);
+          showToast(error.message || "The student could not be removed from the subject.", "error");
+        }
+        break;
       case "toggle-announcement-form":
         if (!requireRole(["professor", "officer", "admin"])) return;
         state.showAnnouncementForm = !state.showAnnouncementForm;
@@ -1385,7 +1428,9 @@
     }
     const offeringForm = formId?.startsWith("offering-form-");
     const staffForm = formId?.startsWith("staff-assignment-form-");
-    if (!["announcement-form", "schedule-form", "event-form", "exam-event-form", "user-form", "section-form"].includes(formId) && !offeringForm && !staffForm) return;
+    const officerForm = formId?.startsWith("section-officer-form-");
+    const enrollmentForm = formId?.startsWith("enrollment-form-");
+    if (!["announcement-form", "schedule-form", "event-form", "exam-event-form", "user-form", "section-form"].includes(formId) && !offeringForm && !staffForm && !officerForm && !enrollmentForm) return;
     event.preventDefault();
     const values = formValues(form);
     if (formId === "section-form") {
@@ -1418,6 +1463,26 @@
       } catch (error) {
         console.error("CampusHub could not assign staff to the class offering.", error);
         showToast(error.message || "Staff assignment could not be completed.", "error");
+      }
+    } else if (officerForm) {
+      if (!requireRole(["admin"])) return;
+      try {
+        await window.CampusHubStore.assignSectionOfficer(form.dataset.sectionId, values.profileId);
+        await refreshSharedData();
+        showToast("The section class officer was assigned.");
+      } catch (error) {
+        console.error("CampusHub could not assign the section officer.", error);
+        showToast(error.message || "The section officer could not be assigned.", "error");
+      }
+    } else if (enrollmentForm) {
+      if (!requireRole(["admin"])) return;
+      try {
+        await window.CampusHubStore.setOfferingEnrollment(form.dataset.offeringId, values.profileId, true);
+        await refreshSharedData();
+        showToast("The student was enrolled in this subject.");
+      } catch (error) {
+        console.error("CampusHub could not enroll the student in the subject.", error);
+        showToast(error.message || "The student could not be enrolled in the subject.", "error");
       }
     } else if (formId === "announcement-form") {
       if (!requireRole(["professor", "officer", "admin"])) return;
