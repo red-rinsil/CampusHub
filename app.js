@@ -542,16 +542,17 @@
     const offering = currentOffering();
     if (!offering) return showToast("Select an assigned class before exporting.", "error");
     const scoped = visibleCollections();
-    const header = ["Type", "Subject", "Professor", "Classroom", "DayOfWeek", "Time", "EndTime", "Date", "Title", "Details", "ImportedBy", "ImportedAt"];
+    const sectionName = state.sections.find(section => section.id === offering.section_id)?.name || "";
+    const header = ["Type", "Section", "SectionId", "Subject", "Professor", "Classroom", "DayOfWeek", "Time", "EndTime", "Date", "Title", "Details", "ImportedBy", "ImportedAt"];
     const rows = scoped.schedules.map(item => [
-      "Class", item.subject, assignedProfessorNames(item.offeringId).join("; "), item.room, item.day, item.start, item.end, item.date || "", "", "",
+      "Class", sectionName, offering.section_id, item.subject, assignedProfessorNames(item.offeringId).join("; "), item.room, item.day, item.start, item.end, item.date || "", "", "",
       item.importedByName || item.importedBy || "", item.importedAt || ""
     ]);
     scoped.events.filter(item => ["Examination", "Quiz"].includes(item.type)).forEach(item => {
       const date = new Date(item.date);
       const localDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
       const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-      rows.push([item.type, item.subject, item.instructor || "", item.location, "", time, "", localDate, item.title, item.details || "", item.importedByName || item.importedBy || "", item.importedAt || ""]);
+      rows.push([item.type, sectionName, offering.section_id, item.subject, item.instructor || "", item.location, "", time, "", localDate, item.title, item.details || "", item.importedByName || item.importedBy || "", item.importedAt || ""]);
     });
     downloadText("campushub-schedules-and-exams.csv", [header, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n"));
     showToast(`Exported ${scoped.schedules.length} classes and ${rows.length - scoped.schedules.length} exams/quizzes.`);
@@ -560,6 +561,22 @@
   function openImportDialog() {
     if (!requireRole(["professor", "admin"])) return;
     pendingImport = null;
+    const targetSelect = document.getElementById("import-offering");
+    const offerings = importTargetOfferings();
+    targetSelect.replaceChildren(new Option("Choose a section and subject", ""));
+    offerings.forEach(offering => {
+      const section = state.sections.find(item => item.id === offering.section_id);
+      targetSelect.add(new Option(
+        `${section?.name || "Section"} — ${offering.subject}${offering.course_code ? ` (${offering.course_code})` : ""}`,
+        offering.id
+      ));
+    });
+    if (offerings.some(offering => offering.id === state.activeOfferingId)) {
+      targetSelect.value = state.activeOfferingId;
+    } else if (offerings.length === 1) {
+      targetSelect.value = offerings[0].id;
+    }
+    targetSelect.disabled = offerings.length === 0;
     document.getElementById("import-file").value = "";
     document.getElementById("import-preview").replaceChildren();
     document.getElementById("import-preview").classList.add("hidden");
@@ -569,6 +586,10 @@
     commitButton.textContent = "Validate a file to continue";
     importModal.hidden = false;
     document.getElementById("import-file").focus();
+  }
+
+  function importTargetOfferings() {
+    return state.activeRole === "admin" ? availableOfferings() : professorAssignedOfferings();
   }
 
   function renderImportPreview(result) {
@@ -614,9 +635,21 @@
       showToast("There are no valid rows to import.", "error");
       return;
     }
+    const allowedOfferingIds = new Set(importTargetOfferings().map(offering => offering.id));
+    const unauthorizedRecords = result.records.filter(record => {
+      const offering = state.offerings.find(item => item.id === record.offeringId);
+      return !offering || !allowedOfferingIds.has(offering.id) ||
+        offering.subject.trim().toLocaleLowerCase() !== record.subject.trim().toLocaleLowerCase();
+    });
+    if (unauthorizedRecords.length) {
+      showToast("Your available section assignments changed. Re-select the file and review its destinations before importing.", "error");
+      pendingImport = null;
+      document.getElementById("import-preview").classList.add("hidden");
+      document.getElementById("commit-import").disabled = true;
+      return;
+    }
     const account = currentUser();
-    const offering = currentOffering();
-    if (!account || !offering) return showToast("Select an assigned class before importing.", "error");
+    if (!account) return showToast("Sign in before importing.", "error");
     const commitButton = document.getElementById("commit-import");
     const previousSchedules = state.schedules;
     const previousEvents = state.events;
@@ -631,6 +664,8 @@
     let examCount = 0;
 
     result.records.forEach(record => {
+      const offering = state.offerings.find(item => item.id === record.offeringId);
+      if (!offering) return;
       if (record.kind === "class") {
         state.schedules.push({
           id: generateId("sch"),
@@ -668,7 +703,16 @@
       }
     });
 
-    if (classCount) recordScheduleChange(`${classCount} class schedule(s) imported from file`);
+    if (classCount) {
+      const importedClassesByOffering = new Map();
+      result.records.filter(record => record.kind === "class").forEach(record => {
+        importedClassesByOffering.set(record.offeringId, (importedClassesByOffering.get(record.offeringId) || 0) + 1);
+      });
+      importedClassesByOffering.forEach((count, offeringId) => {
+        const offering = state.offerings.find(item => item.id === offeringId);
+        if (offering) recordScheduleChange(`${count} class schedule(s) imported from file`, offering);
+      });
+    }
     try {
       await saveState({ reportErrors: false });
     } catch (error) {
@@ -731,18 +775,39 @@
     }
     try {
       const result = window.CampusHubImport.parse(await file.text());
-      const offering = currentOffering();
-      if (!offering) {
-        renderImportPreview({ records: [], errors: ["Select an assigned class before importing."] });
+      const allowedOfferings = importTargetOfferings();
+      if (!allowedOfferings.length) {
+        renderImportPreview({ records: [], errors: ["No active section and subject offerings are available for import."] });
         return;
       }
+      const fallbackOfferingId = document.getElementById("import-offering").value;
       result.records = result.records.filter((record, index) => {
-        let valid = true;
-        if (record.subject.trim().toLocaleLowerCase() !== offering.subject.trim().toLocaleLowerCase()) {
-          result.errors.push(`Imported record ${record.line || index + 1}: subject "${record.subject}" does not match selected subject "${offering.subject}".`);
-          valid = false;
+        const rowNumber = record.line || index + 1;
+        const normalizedSubject = record.subject.trim().toLocaleLowerCase();
+        let matches = allowedOfferings.filter(offering =>
+          offering.subject.trim().toLocaleLowerCase() === normalizedSubject
+        );
+
+        if (record.sectionId) {
+          matches = matches.filter(offering => offering.section_id === record.sectionId);
+        } else if (record.section) {
+          const matchingSectionIds = new Set(state.sections
+            .filter(section => section.name.trim().toLocaleLowerCase() === record.section.trim().toLocaleLowerCase())
+            .map(section => section.id));
+          matches = matches.filter(offering => matchingSectionIds.has(offering.section_id));
+        } else {
+          matches = matches.filter(offering => offering.id === fallbackOfferingId);
         }
-        return valid;
+
+        if (matches.length !== 1) {
+          const targetDescription = record.section || record.sectionId
+            ? `section "${record.section || record.sectionId}" and subject "${record.subject}"`
+            : `selected destination and subject "${record.subject}"`;
+          result.errors.push(`Row ${rowNumber}: could not resolve ${targetDescription} to exactly one section and subject available to your role.`);
+          return false;
+        }
+        record.offeringId = matches[0].id;
+        return true;
       });
       if (result.records.length > 10000) {
         renderImportPreview({ records: [], errors: ["Files may contain no more than 10,000 valid rows."] });
@@ -753,6 +818,11 @@
     } catch (error) {
       renderImportPreview({ records: [], errors: [error.message || "The file could not be parsed."] });
     }
+  });
+
+  document.getElementById("import-offering").addEventListener("change", () => {
+    const fileInput = document.getElementById("import-file");
+    if (fileInput.files?.length) fileInput.dispatchEvent(new Event("change", { bubbles: true }));
   });
 
   document.getElementById("import-form").addEventListener("submit", event => {
@@ -1128,7 +1198,7 @@
     const canEdit = canManageEvents();
     const actions = `<div class="flex flex-wrap items-end gap-2">${viewSectionSelector("exams", Boolean(state.editingExam))}${canEdit ? button("＋ Add exam", "toggle-exam-form", "", "btn-primary") : ""}${bulkScheduleActions()}</div>`;
     const preferredOfferingId = state.offerings.find(offering => offering.section_id === section?.id && offering.active)?.id || state.activeOfferingId;
-    return `${pageIntro("Assessment planning", "Exam timetable", "Check the date, start time, subject, and room for each exam or quiz. Unlike the weekly class schedule, every assessment shows its full calendar date.", actions)}
+    return `${pageIntro("Assessment planning", "Exam timetable", "Check the date, start time, subject, and room for each exam or quiz.", actions)}
       ${state.showExamForm ? eventForm(scopedEvents.find(item => item.id === state.editingExam), true, preferredOfferingId, section?.id) : ""}
       <section class="surface-card overflow-hidden">
         <div class="border-b border-slate-100 p-4 sm:px-5"><h3 class="font-bold">Exams & quizzes</h3><p class="mt-1 text-xs text-slate-500">${exams.length} scheduled assessments · sorted by date</p></div>
