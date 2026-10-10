@@ -108,6 +108,7 @@
   const accessMessage = document.getElementById("access-message");
   let pendingImport = null;
   let importValidationId = 0;
+  let importMode = "class";
 
   function saveState({ reportErrors = true } = {}) {
     if (!dataReady || !currentUser()) return Promise.resolve();
@@ -530,8 +531,16 @@
   function bulkScheduleActions() {
     if (!["professor", "admin"].includes(state.activeRole)) return "";
     return `<div class="flex flex-wrap gap-2">
-      ${button("Import CSV / TXT", "open-import", "", "btn-primary")}
+      ${button("Import class schedule", "open-import", 'data-import-mode="class"', "btn-primary")}
       ${button("Export class schedules", "export-schedules")}
+    </div>`;
+  }
+
+  function examImportExportActions() {
+    if (!["professor", "admin"].includes(state.activeRole)) return "";
+    return `<div class="flex flex-wrap gap-2">
+      ${button("Import exams", "open-import", 'data-import-mode="exam"', "btn-primary")}
+      ${button("Export exams", "export-exams")}
     </div>`;
   }
 
@@ -569,6 +578,26 @@
     showToast(`Exported ${rows.length} class schedule(s) for ${section.name}.`);
   }
 
+  function exportExamData() {
+    if (!requireRole(["professor", "admin"])) return;
+    const section = selectedViewSection("exams");
+    if (!section) return showToast("Select an accessible section before exporting.", "error");
+    const exams = sectionRecordsForCurrentRole(state.events, section)
+      .filter(event => event.type === "Examination");
+    const header = ["Subject", "Classroom", "Time", "Date", "Title", "Details", "ImportedBy", "ImportedAt"];
+    const rows = exams.map(item => {
+      const date = new Date(item.date);
+      const localDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+      return [
+        item.subject, item.location, time, localDate, item.title, item.details || "",
+        item.importedByName || item.importedBy || "", item.importedAt || ""
+      ];
+    });
+    downloadText("campushub-exams.csv", [header, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n"));
+    showToast(`Exported ${rows.length} exam(s) for ${section.name}.`);
+  }
+
   function importTargetOfferings() {
     const offerings = state.activeRole === "admin" ? availableOfferings() : professorAssignedOfferings();
     return offerings.filter(offering =>
@@ -588,8 +617,10 @@
     select.disabled = sections.length === 0;
   }
 
-  function openImportDialog() {
+  function openImportDialog(mode = "class") {
     if (!requireRole(["professor", "admin"])) return;
+    importValidationId += 1;
+    importMode = mode;
     pendingImport = null;
     populateImportSectionOptions();
     document.getElementById("import-file").value = "";
@@ -599,6 +630,23 @@
     const commitButton = document.getElementById("commit-import");
     commitButton.disabled = true;
     commitButton.textContent = "Validate a file to continue";
+    const isExamImport = mode === "exam";
+    document.getElementById("import-heading").textContent = isExamImport ? "Import exams" : "Import class schedules";
+    document.getElementById("import-description").textContent = isExamImport
+      ? "Choose the destination section. Each row is matched to a subject in that section and imported as an exam."
+      : "Choose the destination section. Each row is matched to a subject in that section and imported as a class schedule.";
+    document.getElementById("import-columns").textContent = isExamImport
+      ? "Subject, Classroom, Time, Date, Title, Details"
+      : "Type, Subject, Professor, Classroom, DayOfWeek, Time, EndTime";
+    document.getElementById("import-guidance").textContent = isExamImport
+      ? "Exam rows need Subject, Classroom, Time, and a real Date in YYYY-MM-DD format. Title and Details are optional. Quiz and other academic calendar rows are not accepted."
+      : "Class rows need Type, Subject, Classroom, DayOfWeek, Time, and EndTime. Only Class rows are accepted.";
+    document.getElementById("download-import-template").download = isExamImport
+      ? "campushub-exam-template.csv"
+      : "campushub-class-schedule-template.csv";
+    document.getElementById("import-footer").textContent = isExamImport
+      ? "Validated exams are saved to the shared campus database."
+      : "Validated class schedules are saved to the shared campus database.";
     importModal.hidden = false;
     document.getElementById("import-section").focus();
   }
@@ -610,9 +658,8 @@
     preview.classList.remove("hidden");
     const summary = document.createElement("p");
     summary.className = "mb-2 font-semibold text-slate-800";
-    const classes = result.records.filter(record => record.kind === "class").length;
-    const exams = result.records.length - classes;
-    summary.textContent = `${result.records.length} valid row(s): ${classes} class schedule(s), ${exams} exam/quiz record(s).${result.errors.length ? ` ${result.errors.length} row error(s).` : ""}`;
+    const recordsLabel = importMode === "exam" ? "exam(s)" : "class schedule(s)";
+    summary.textContent = `${result.records.length} valid ${recordsLabel}.${result.errors.length ? ` ${result.errors.length} row error(s).` : ""}`;
     preview.append(summary);
     if (result.errors.length) {
       const list = document.createElement("ul");
@@ -631,7 +678,9 @@
     } else {
       const empty = document.createElement("p");
       empty.className = "text-amber-700";
-      empty.textContent = "No data rows were found. Add at least one class, exam, or quiz row to the file.";
+      empty.textContent = importMode === "exam"
+        ? "No exam data rows were found."
+        : "No class schedule data rows were found.";
       preview.append(empty);
     }
     commitButton.disabled = result.records.length === 0;
@@ -645,6 +694,9 @@
     if (!result.records.length) {
       showToast("There are no valid rows to import.", "error");
       return;
+    }
+    if (result.importMode !== importMode) {
+      return showToast("The import type changed. Revalidate the file before importing.", "error");
     }
     const account = currentUser();
     const destinationSectionId = document.getElementById("import-section").value;
@@ -668,13 +720,12 @@
     commitButton.disabled = true;
     commitButton.textContent = "Importing…";
     const importedAt = new Date().toISOString();
-    let classCount = 0;
-    let examCount = 0;
+    let importedCount = 0;
     const importedClassesByOffering = new Map();
 
     result.records.forEach(record => {
       const offering = targetOfferingsById.get(record.offeringId);
-      if (record.kind === "class") {
+      if (importMode === "class") {
         state.schedules.push({
           id: generateId("sch"),
           day: record.day,
@@ -693,13 +744,13 @@
           offering.id,
           (importedClassesByOffering.get(offering.id) || 0) + 1
         );
-        classCount += 1;
+        importedCount += 1;
       } else {
         const localDateTime = new Date(`${record.date}T${record.time}:00`);
         state.events.push({
           id: generateId("evt"),
-          title: record.title,
-          type: record.type,
+          title: record.title || `Examination — ${offering.subject}`,
+          type: "Examination",
           subject: record.subject,
           date: localDateTime.toISOString(),
           location: record.room,
@@ -711,14 +762,16 @@
           importedByName: account.name,
           importedAt
         });
-        examCount += 1;
+        importedCount += 1;
       }
     });
 
-    importedClassesByOffering.forEach((count, offeringId) => {
-      const offering = targetOfferings.find(item => item.id === offeringId);
-      recordScheduleChange(`${count} class schedule(s) imported from file`, offering);
-    });
+    if (importMode === "class") {
+      importedClassesByOffering.forEach((count, offeringId) => {
+        const offering = targetOfferings.find(item => item.id === offeringId);
+        recordScheduleChange(`${count} class schedule(s) imported from file`, offering);
+      });
+    }
     try {
       await saveState({ reportErrors: false });
     } catch (error) {
@@ -735,7 +788,7 @@
     pendingImport = null;
     importModal.hidden = true;
     render();
-    const message = `Successfully imported ${classCount} class schedule(s) and ${examCount} exam/quiz record(s).`;
+    const message = `Successfully imported ${importedCount} ${importMode === "exam" ? "exam(s)" : "class schedule(s)"}.`;
     showToast(result.errors.length ? `${message} ${result.errors.length} invalid row(s) were skipped.` : message);
   }
 
@@ -767,7 +820,7 @@
       return;
     }
     try {
-      const result = window.CampusHubImport.parse(await file.text());
+      const result = window.CampusHubImport.parse(await file.text(), importMode);
       if (validationId !== importValidationId) return;
       const destinationOfferings = importTargetOfferings()
         .filter(offering => offering.section_id === sectionId);
@@ -789,6 +842,7 @@
         return;
       }
       result.destinationSectionId = sectionId;
+      result.importMode = importMode;
       pendingImport = result;
       renderImportPreview(result);
     } catch (error) {
@@ -799,16 +853,21 @@
 
   document.getElementById("download-import-template").addEventListener("click", event => {
     event.preventDefault();
-    downloadText("campushub-schedule-exam-template.csv", window.CampusHubImport.template());
+    const filename = importMode === "exam"
+      ? "campushub-exam-template.csv"
+      : "campushub-class-schedule-template.csv";
+    downloadText(filename, window.CampusHubImport.template(importMode));
   });
 
   document.querySelector("[data-close-import]").addEventListener("click", () => {
+    importValidationId += 1;
     importModal.hidden = true;
     pendingImport = null;
   });
 
   importModal.addEventListener("click", event => {
     if (event.target === importModal) {
+      importValidationId += 1;
       importModal.hidden = true;
       pendingImport = null;
     }
@@ -1192,22 +1251,22 @@
   function renderExamTimetable() {
     const section = selectedViewSection("exams");
     const scopedEvents = sectionRecordsForCurrentRole(state.events, section);
-    const exams = scopedEvents.filter(event => ["Examination", "Quiz"].includes(event.type)).sort((a, b) => new Date(a.date) - new Date(b.date));
+    const exams = scopedEvents.filter(event => event.type === "Examination").sort((a, b) => new Date(a.date) - new Date(b.date));
     const canEdit = canManageEvents();
-    const actions = `<div class="flex flex-wrap items-end gap-2">${viewSectionSelector("exams", Boolean(state.editingExam))}${canEdit ? button("＋ Add exam", "toggle-exam-form", "", "btn-primary") : ""}</div>`;
+    const actions = `<div class="flex flex-wrap items-end gap-2">${viewSectionSelector("exams", Boolean(state.editingExam))}${canEdit ? `${button("＋ Add exam", "toggle-exam-form", "", "btn-primary")}${examImportExportActions()}` : ""}</div>`;
     const preferredOfferingId = state.offerings.find(offering => offering.section_id === section?.id && offering.active)?.id || state.activeOfferingId;
-    return `${pageIntro("Assessment planning", "Exam timetable", "Check the date, start time, subject, and room for each exam or quiz. Unlike the weekly class schedule, every assessment shows its full calendar date.", actions)}
+    return `${pageIntro("Assessment planning", "Exam timetable", "Check the date, start time, subject, and room for each examination. Unlike the weekly class schedule, every exam shows its full calendar date.", actions)}
       ${state.showExamForm ? eventForm(scopedEvents.find(item => item.id === state.editingExam), true, preferredOfferingId, section?.id) : ""}
       <section class="surface-card overflow-hidden">
-        <div class="border-b border-slate-100 p-4 sm:px-5"><h3 class="font-bold">Exams & quizzes</h3><p class="mt-1 text-xs text-slate-500">${exams.length} scheduled assessments · sorted by date</p></div>
+        <div class="border-b border-slate-100 p-4 sm:px-5"><h3 class="font-bold">Examinations</h3><p class="mt-1 text-xs text-slate-500">${exams.length} scheduled exams · sorted by date</p></div>
         ${exams.length ? `<div class="divide-y divide-slate-100">${exams.map(exam => {
           const date = new Date(exam.date);
           return `<article class="grid gap-4 p-4 sm:grid-cols-[9rem_1fr_auto] sm:items-center sm:px-5">
             <div class="rounded-xl bg-indigo-50 px-3 py-2.5 text-center sm:text-left"><p class="text-xs font-bold uppercase tracking-wide text-indigo-700">${escapeHtml(new Intl.DateTimeFormat("en", { weekday: "short" }).format(date))}</p><p class="mt-0.5 text-sm font-bold text-slate-900">${escapeHtml(formatDate(exam.date, { month: "short", day: "numeric", year: "numeric" }))}</p><p class="mt-0.5 text-xs font-semibold text-indigo-700">${escapeHtml(formatTime(exam.date))}</p></div>
-            <div class="min-w-0"><div class="flex flex-wrap items-center gap-2">${badge(exam.type)}<span class="text-xs text-slate-500">${escapeHtml(exam.subject)}</span></div><p class="mt-1.5 text-sm text-slate-500">${escapeHtml(exam.location)}</p>${exam.details ? `<p class="mt-1 text-xs leading-5 text-slate-500">${escapeHtml(exam.details)}</p>` : ""}</div>
+            <div class="min-w-0"><div class="flex flex-wrap items-center gap-2">${badge("Examination")}<span class="text-xs text-slate-500">${escapeHtml(exam.subject)}</span></div><p class="mt-1.5 text-sm text-slate-500">${escapeHtml(exam.location)}</p>${exam.details ? `<p class="mt-1 text-xs leading-5 text-slate-500">${escapeHtml(exam.details)}</p>` : ""}</div>
             ${canEdit ? `<div class="flex gap-2 sm:justify-end">${button("Edit", "edit-exam", `data-id="${exam.id}"`)}${button("Remove", "delete-exam", `data-id="${exam.id}"`, "btn-danger")}</div>` : ""}
           </article>`;
-        }).join("")}</div>` : `<div class="p-5">${emptyState("No exams scheduled", canEdit ? "Add an exam or quiz to publish a dated entry here." : "Exam and quiz dates will appear here when they are published.")}</div>`}
+        }).join("")}</div>` : `<div class="p-5">${emptyState("No exams scheduled", canEdit ? "Add an examination to publish a dated entry here." : "Examination dates will appear here when they are published.")}</div>`}
       </section>`;
   }
 
@@ -1233,7 +1292,7 @@
     const events = [...scopedEvents].sort((a, b) => new Date(a.date) - new Date(b.date));
     const actions = `<div class="flex flex-wrap items-end gap-2">${viewSectionSelector("calendar")}${canEdit ? button("＋ Add calendar item", "toggle-event-form", "", "btn-primary") : ""}</div>`;
     const selectedOffering = state.offerings.find(offering => offering.section_id === section?.id && offering.active)?.id || state.activeOfferingId;
-    return `${pageIntro("Never miss a date", "Academic calendar", "Examinations, quizzes, project deadlines, consultations, and special class sessions in one chronological view.", actions)}
+    return `${pageIntro("Never miss a date", "Academic calendar", "Examinations, quizzes, deadlines, and special class in one place.", actions)}
       ${state.showEventForm ? eventForm(scopedEvents.find(item => item.id === state.editingEvent), false, selectedOffering, allSections ? null : section?.id) : ""}
       <section class="surface-card p-4 sm:p-6"><div class="mb-4 flex items-center justify-between"><div><h3 class="font-bold">Upcoming academic dates</h3><p class="mt-1 text-xs text-slate-500">${events.length} scheduled items</p></div></div>
         <div class="divide-y divide-slate-100">${events.length ? events.map(event => `<div class="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">${eventRow(event, allSections)}${canEdit ? `<div class="flex shrink-0 gap-2 sm:ml-2">${button("Edit", "edit-event", `data-id="${event.id}"`)}${button("Delete", "delete-event", `data-id="${event.id}"`, "btn-danger")}</div>` : ""}</div>`).join("") : emptyState("Nothing scheduled", "New academic events will appear here.")}</div>
@@ -1241,18 +1300,18 @@
   }
 
   function eventForm(item = null, examOnly = false, selectedOfferingId = null, sectionId = null) {
-    const eventTypes = examOnly ? ["Examination", "Quiz"] : ["Quiz", "Examination", "Project Deadline", "Consultation", "Special Class"];
+    const eventTypes = ["Quiz", "Examination", "Project Deadline", "Consultation", "Special Class"];
     const formId = examOnly ? "exam-event-form" : "event-form";
     const formTitle = examOnly ? "exam" : "calendar item";
     return `<form id="${formId}" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">${item ? `Edit ${formTitle}` : `Add ${formTitle}`}</h3>${button("Cancel", examOnly ? "cancel-exam-form" : "cancel-event-form")}</div>
       <input type="hidden" name="id" value="${item ? escapeHtml(item.id) : ""}"><div class="grid gap-3 sm:grid-cols-2">
       ${!examOnly ? `<label class="block text-xs font-semibold text-slate-600">Title<input class="form-control mt-1.5" name="title" required value="${item ? escapeHtml(item.title) : ""}"></label>` : ""}
       ${offeringSelectionFields(item?.offeringId || selectedOfferingId || state.activeOfferingId, sectionId)}
-      <label class="block text-xs font-semibold text-slate-600">Type<select name="type" class="form-control mt-1.5">${eventTypes.map(type => `<option ${item?.type === type ? "selected" : ""}>${type}</option>`).join("")}</select></label>
+      ${examOnly ? "" : `<label class="block text-xs font-semibold text-slate-600">Type<select name="type" class="form-control mt-1.5">${eventTypes.map(type => `<option ${item?.type === type ? "selected" : ""}>${type}</option>`).join("")}</select></label>`}
       <label class="block text-xs font-semibold text-slate-600">Date and time<input class="form-control mt-1.5" type="datetime-local" name="date" required value="${item ? escapeHtml(new Date(new Date(item.date).getTime() - new Date(item.date).getTimezoneOffset() * 60000).toISOString().slice(0, 16)) : ""}"></label>
       <label class="block text-xs font-semibold text-slate-600">Location<input class="form-control mt-1.5" name="location" required value="${item ? escapeHtml(item.location) : ""}"></label>
       <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Details<textarea class="form-control mt-1.5" rows="3" name="details">${item ? escapeHtml(item.details) : ""}</textarea></label>
-      </div><div class="mt-4 flex justify-end"><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white">${item ? "Save changes" : "Add to calendar"}</button></div></form>`;
+      </div><div class="mt-4 flex justify-end"><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white">${item ? "Save changes" : examOnly ? "Add exam" : "Add to calendar"}</button></div></form>`;
   }
 
   function renderManagement() {
@@ -2003,7 +2062,7 @@
         break;
       }
       case "open-import":
-        openImportDialog();
+        openImportDialog(control.dataset.importMode || "class");
         break;
       case "open-section-join":
         if (!requireRole(["student"])) return;
@@ -2013,6 +2072,9 @@
         break;
       case "export-schedules":
         exportScheduleData();
+        break;
+      case "export-exams":
+        exportExamData();
         break;
       case "issue-role-key":
         generateRoleKey(control.dataset.role);
@@ -2448,7 +2510,6 @@
       state.showScheduleForm = false; state.editingSchedule = null; saveState(); render();
     } else if (formId === "event-form" || formId === "exam-event-form") {
       if (!requireRole(["professor", "admin"])) return;
-      if (formId === "exam-event-form" && !["Examination", "Quiz"].includes(values.type)) return showToast("Choose an exam or quiz type.", "error");
       const targetOffering = offeringFromForm(values);
       if (!targetOffering) return showToast("Choose an active subject in a section you can manage.", "error");
       const date = new Date(values.date);
@@ -2456,9 +2517,9 @@
       const existing = values.id ? state.events.find(item => item.id === values.id) : null;
       const update = {
         title: formId === "exam-event-form"
-          ? existing?.title || `${values.type} — ${targetOffering.subject}`
+          ? existing?.title || `Examination — ${targetOffering.subject}`
           : values.title.trim(),
-        type: values.type,
+        type: formId === "exam-event-form" ? "Examination" : values.type,
         subject: targetOffering.subject,
         date: date.toISOString(),
         location: values.location.trim(),

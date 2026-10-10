@@ -73,9 +73,12 @@
     return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
   }
 
-  function parse(text) {
+  function parse(text, mode = "all") {
     const records = [];
     const errors = [];
+    if (!["all", "class", "exam"].includes(mode)) {
+      throw new Error(`Unsupported import mode: ${mode}.`);
+    }
     const rows = readCsv(String(text).replace(/^\uFEFF/, ""));
     if (!rows.length) return { records, errors: ["The file is empty."] };
 
@@ -84,7 +87,7 @@
     headerNames.forEach((value, index) => {
       if (value) headerIndexes.set(value, index);
     });
-    for (const required of ["type", "subject", "time"]) {
+    for (const required of [...(mode === "exam" ? [] : ["type"]), "subject", "time"]) {
       if (!headerIndexes.has(required)) errors.push(`Header row is missing the required "${required}" column.`);
     }
     if (!headerIndexes.has("classroom") && !headerIndexes.has("location")) {
@@ -108,7 +111,7 @@
       }
 
       const typeInput = get(values, "type").toLowerCase();
-      const type = TYPE_ALIASES[typeInput];
+      const type = mode === "exam" ? "Examination" : TYPE_ALIASES[typeInput];
       const subject = get(values, "subject");
       const instructor = get(values, "professor", "instructor");
       const room = get(values, "classroom", "location");
@@ -120,6 +123,8 @@
       const details = get(values, "details", "description");
 
       if (!type) rowErrors.push('Type must be "Class", "Exam", "Examination", or "Quiz".');
+      else if (mode === "class" && type !== "class") rowErrors.push('Class schedule imports accept only rows with Type "Class".');
+      else if (mode === "exam" && typeInput && typeInput !== "exam" && typeInput !== "examination") rowErrors.push('Exam timetable imports accept only exam rows; quizzes and other types are not supported.');
       if (!subject) rowErrors.push("Subject is required.");
       if (!time || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) rowErrors.push('Time must use 24-hour HH:MM format (for example, "09:30").');
       if (!room) rowErrors.push("Classroom/Location is required.");
@@ -165,7 +170,13 @@
     return { records, errors };
   }
 
-  function template() {
+  function template(mode = "all") {
+    if (mode === "class") {
+      return `${HEADERS.join(",")}\r\nClass,Data Structures,Replace with assigned professor,Engineering 204,Monday,09:00,10:30,,,`;
+    }
+    if (mode === "exam") {
+      return "Subject,Classroom,Time,Date,Title,Details\r\nData Structures,Engineering Hall 204,10:00,2026-11-12,Midterm examination,Bring your student ID";
+    }
     return `${HEADERS.join(",")}\r\nClass,Data Structures,Replace with assigned professor,Engineering 204,Monday,09:00,10:30,,,\r\nExam,Data Structures,,Engineering Hall 204,,10:00,,2026-11-12,Midterm examination,Bring your student ID\r\nQuiz,Database Systems,,Technology 108,,13:30,,2026-11-18,Database quiz,Chapters 1-4`;
   }
 
