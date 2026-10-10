@@ -497,9 +497,7 @@
       management: renderManagement,
       settings: renderSettings
     };
-    const section = state.sections.find(item => item.id === currentOffering()?.section_id);
-    const context = !["dashboard", "announcements"].includes(state.activeTab) && currentOffering() ? `<div class="mb-5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3"><div><p class="text-xs font-bold text-indigo-900">${escapeHtml(currentOffering().subject)}${currentOffering().course_code ? ` · ${escapeHtml(currentOffering().course_code)}` : ""}</p><p class="text-xs text-indigo-700">${escapeHtml(section?.name || "Section")}</p></div><p class="text-xs text-indigo-700">${state.activeRole === "student" ? "Section information" : "Managing assigned offering"}</p></div>` : "";
-    content.innerHTML = context + (pages[state.activeTab] || renderDashboard)();
+    content.innerHTML = (pages[state.activeTab] || renderDashboard)();
     renderUserEditModal();
   }
 
@@ -887,7 +885,6 @@
       <input type="hidden" name="id" value="${editing ? escapeHtml(item.id) : ""}">
       <div class="grid gap-3 sm:grid-cols-2">
         ${field("Title", "title", item?.title, "text", true)}
-        <p class="self-center text-xs font-medium text-slate-500">${escapeHtml(sectionName)}${item?.subject || currentOffering()?.subject ? ` · ${escapeHtml(item?.subject || currentOffering()?.subject)}` : ""}</p>
         <label class="block text-xs font-semibold text-slate-600">Category<select name="category" class="form-control mt-1.5" data-announcement-category required>${[...new Set(["General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High", "Subject", item.category])].map(value => `<option ${((value === "Subject" && editingSubjectCategory) || (value === item.category && !editingSubjectCategory)) ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}</select></label>
         <label class="block text-xs font-semibold text-slate-600 sm:col-span-2 ${editingSubjectCategory ? "" : "hidden"}" data-edit-subject-container>Subject subcategory<select name="subjectOfferingId" class="form-control mt-1.5" data-edit-subject-select ${editingSubjectCategory ? "required" : ""}>${editOfferings.map(offering => `<option value="${escapeHtml(offering.id)}" ${offering.id === item.offeringId ? "selected" : ""}>${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</option>`).join("")}</select></label>
         <label class="flex items-center gap-2 self-end pb-3 text-sm font-medium text-slate-700"><input type="checkbox" name="urgent" class="h-4 w-4 rounded border-slate-300 text-indigo-600" ${item?.urgent ? "checked" : ""}> Mark as urgent</label>
