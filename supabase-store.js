@@ -192,6 +192,14 @@
     return unwrap(await client.rpc("create_campus_section", { p_name: name }));
   }
 
+  async function duplicateSection(sectionId, name) {
+    assertReady();
+    return unwrap(await client.rpc("duplicate_campus_section", {
+      p_section_id: sectionId,
+      p_name: name
+    }));
+  }
+
   async function rotateSectionKey(sectionId) {
     assertReady();
     return unwrap(await client.rpc("rotate_campus_section_key", { p_section_id: sectionId }));
@@ -302,6 +310,14 @@
     }));
   }
 
+  async function setOfficerOfferings(profileId, offeringIds) {
+    assertReady();
+    return unwrap(await client.rpc("set_officer_offerings", {
+      p_profile_id: profileId,
+      p_offering_ids: offeringIds
+    }));
+  }
+
   async function changePassword(currentPassword, newPassword) {
     assertReady();
     const { data: userData, error: signInError } = await client.auth.getUser();
@@ -330,6 +346,7 @@
     updateProfile,
     issueRoleKey,
     createSection,
+    duplicateSection,
     rotateSectionKey,
     joinSection,
     createOffering,
@@ -344,6 +361,7 @@
     setOfferingEnrollment,
     setStudentClassAssignments,
     setProfessorOfferings,
+    setOfficerOfferings,
     changePassword,
     watch
   });

@@ -128,11 +128,21 @@
   }
 
   function canManageAnnouncements() {
-    return ["professor", "officer", "admin"].includes(state.activeRole);
+    return ["professor", "admin"].includes(state.activeRole) ||
+      (state.activeRole === "officer" && officerHasOffering(state.activeOfferingId));
   }
 
   function canManageSchedules() {
-    return ["professor", "officer", "admin"].includes(state.activeRole);
+    return ["professor", "admin"].includes(state.activeRole) ||
+      (state.activeRole === "officer" && officerHasOffering(state.activeOfferingId));
+  }
+
+  function officerHasOffering(offeringId) {
+    return state.activeRole === "officer" && state.assignments.some(assignment =>
+      assignment.profile_id === state.currentUserId &&
+      assignment.staff_role === "officer" &&
+      assignment.offering_id === offeringId
+    );
   }
 
   function canManageEvents() {
@@ -650,7 +660,9 @@
   function renderDashboard() {
     const scoped = visibleCollections();
     const nextEvents = scoped.events.filter(event => new Date(event.date) >= new Date()).sort((a, b) => new Date(a.date) - new Date(b.date));
-    const urgent = scoped.announcements.filter(item => item.urgent && !item.archived).slice(0, 2);
+    const latestAnnouncements = scoped.announcements.filter(item => !item.archived)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, 3);
     const studentCount = state.studentCounts[state.activeOfferingId] || 0;
     const unread = scoped.announcements.filter(item => !item.archived && !item.acknowledgments.includes(activeUserId())).length;
     const dashboardSection = state.sections.find(item => item.id === (state.membership?.section_id || currentOffering()?.section_id));
@@ -660,7 +672,7 @@
         ${metricCard("Upcoming academic dates", nextEvents.length, "Across exams, quizzes & deadlines", "text-indigo-600", "calendar")}
         ${metricCard("Active announcements", scoped.announcements.filter(item => !item.archived).length, "Updates from your campus", "text-violet-600", "bell")}
         ${metricCard("Unread updates", unread, "Not yet acknowledged by you", "text-amber-600", "clock")}
-        ${metricCard("Students in this subject", studentCount, "Enrolled in this offering", "text-emerald-600", "users")}
+        ${metricCard("Students in this section", studentCount, "Enrolled in this section", "text-emerald-600", "users")}
       </div>
       <section class="mt-5 rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50 to-violet-50 p-5 sm:p-6">
         <p class="text-xs font-bold uppercase tracking-[.14em] text-indigo-700">A more connected campus</p>
@@ -673,12 +685,12 @@
           <div class="mt-5 divide-y divide-slate-100">${nextEvents.length ? nextEvents.slice(0, 4).map(event => eventRow(event)).join("") : emptyState("You're all caught up", "No upcoming academic dates are scheduled.")}</div>
         </section>
         <section class="surface-card p-5 sm:p-6">
-          <div class="flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-rose-600">Needs your attention</p><h3 class="mt-1 text-lg font-bold">Urgent notices</h3></div>${button("All announcements", "navigate", 'data-target="announcements"', "btn-secondary")}</div>
-          <div class="mt-5 space-y-3">${urgent.length ? urgent.map(item => `<article class="rounded-xl border border-rose-100 bg-rose-50/60 p-4">
+          <div class="flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-rose-600">Campus updates</p><h3 class="mt-1 text-lg font-bold">Latest announcements</h3></div>${button("All announcements", "navigate", 'data-target="announcements"', "btn-secondary")}</div>
+          <div class="mt-5 space-y-3">${latestAnnouncements.length ? latestAnnouncements.map(item => `<article class="rounded-xl border ${item.urgent ? "border-rose-100 bg-rose-50/60" : "border-slate-100 bg-slate-50/60"} p-4">
             <div class="flex items-center justify-between gap-2">${badge(item.category)}<span class="text-xs text-slate-500">${relativeDate(item.createdAt)}</span></div>
             <h4 class="mt-3 text-sm font-bold text-slate-900">${escapeHtml(item.title)}</h4>
             <p class="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">${escapeHtml(item.content)}</p>
-          </article>`).join("") : emptyState("No urgent notices", "Important updates will appear here.")}</div>
+          </article>`).join("") : emptyState("No announcements yet", "The latest campus updates will appear here.")}</div>
         </section>
       </div>
       <section class="surface-card mt-6 p-5 sm:p-6"><div class="flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-emerald-600">This week</p><h3 class="mt-1 text-lg font-bold">Your class schedule</h3></div>${button("Open timetable", "navigate", 'data-target="timetable"', "btn-secondary")}</div>
@@ -922,7 +934,7 @@
           .map(item => activeUsers.find(user => user.id === item.profile_id && user.role === "student"))
           .filter(Boolean);
         const officerOptions = activeUsers.filter(user => user.role === "officer");
-        return `<details class="rounded-xl border border-slate-200 p-4"><summary class="cursor-pointer font-bold">${escapeHtml(section.name)}<span class="ml-2 text-xs font-normal text-slate-500">${offerings.length} subject(s) · ${sectionStudents.length} active student(s) · ${section.active ? "Active" : "Archived"}</span></summary><div class="mt-3"><div class="mb-3 flex flex-wrap justify-end gap-2">${section.active ? button("Rotate join key", "rotate-section-key", `data-id="${section.id}"`) : ""}${button(section.active ? "Archive section" : "Restore section", "toggle-section-active", `data-id="${section.id}"`, section.active ? "btn-danger" : "btn-secondary")}${button("Delete permanently", "delete-section", `data-id="${section.id}"`, "btn-danger")}</div>
+        return `<details class="rounded-xl border border-slate-200 p-4"><summary class="cursor-pointer font-bold">${escapeHtml(section.name)}<span class="ml-2 text-xs font-normal text-slate-500">${offerings.length} subject(s) · ${sectionStudents.length} active student(s) · ${section.active ? "Active" : "Archived"}</span></summary><div class="mt-3"><div class="mb-3 flex flex-wrap justify-end gap-2">${button("Duplicate section", "duplicate-section", `data-id="${section.id}"`)}${section.active ? button("Rotate join key", "rotate-section-key", `data-id="${section.id}"`) : ""}${button(section.active ? "Archive section" : "Restore section", "toggle-section-active", `data-id="${section.id}"`, section.active ? "btn-danger" : "btn-secondary")}${button("Delete permanently", "delete-section", `data-id="${section.id}"`, "btn-danger")}</div>
           <form id="section-edit-form-${section.id}" data-section-id="${section.id}" class="mt-3 flex flex-wrap items-end gap-2"><label class="min-w-48 flex-1 text-xs font-semibold text-slate-600">Edit section name<input class="form-control mt-1 py-2 text-sm" name="name" maxlength="80" required value="${escapeHtml(section.name)}"></label><button class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Save name</button></form>
           <form id="section-officer-form-${section.id}" data-section-id="${section.id}" class="mt-4 flex flex-wrap items-center gap-2"><label class="min-w-48 flex-1 text-xs font-semibold text-slate-600">Class officer<select class="form-control mt-1 py-2 text-xs" name="profileId" required><option value="">Select one class officer</option>${officerOptions.map(person => `<option value="${person.id}" ${person.id === officer?.id ? "selected" : ""}>${escapeHtml(person.name)} (${escapeHtml(person.email)})</option>`).join("")}</select></label><button class="mt-4 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Assign / replace officer</button>${officer ? `${button("Remove officer", "clear-section-officer", `data-id="${section.id}"`, "btn-danger")}<span class="text-xs text-slate-500">${officer.active ? "" : "Assigned account is inactive"}</span>` : ""}</form>
           <form id="offering-form-${section.id}" data-section-id="${section.id}" class="mt-4 grid gap-2 sm:grid-cols-[1fr_12rem_auto]"><label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" maxlength="120" placeholder="Data Structures" required></label><label class="block text-xs font-semibold text-slate-600">Course code (optional)<input class="form-control mt-1.5" name="courseCode" maxlength="32" placeholder="CS201"></label><button class="self-end rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" ${section.active ? "" : "disabled"}>Add subject</button></form>
@@ -981,11 +993,17 @@
   function userForm(user = null) {
     const membership = state.sectionMemberships.find(item => item.profile_id === user.id);
     const selectedOfferingIds = state.enrollments.filter(item => item.profile_id === user.id).map(item => item.offering_id);
-    const assignedOfferingIds = state.assignments.filter(item => item.profile_id === user.id && item.staff_role === "professor").map(item => item.offering_id);
+    const assignedOfferingIds = state.assignments.filter(item => item.profile_id === user.id &&
+      item.staff_role === (user.role === "officer" ? "officer" : "professor")).map(item => item.offering_id);
+    const officerSectionIds = new Set(state.sectionOfficers
+      .filter(item => item.profile_id === user.id)
+      .map(item => item.section_id));
     const activeSections = [...state.sections]
       .filter(item => item.active || item.id === membership?.section_id)
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
-    const activeOfferings = [...state.offerings].filter(offering => offering.active && state.sections.some(section => section.id === offering.section_id && section.active))
+    const activeOfferings = [...state.offerings].filter(offering => offering.active &&
+      (user.role !== "officer" || officerSectionIds.has(offering.section_id)) &&
+      state.sections.some(section => section.id === offering.section_id && section.active))
       .sort((a, b) => {
         const sectionA = state.sections.find(section => section.id === a.section_id)?.name || "";
         const sectionB = state.sections.find(section => section.id === b.section_id)?.name || "";
@@ -995,7 +1013,7 @@
       <input type="hidden" name="id" value="${escapeHtml(user.id)}"><label class="block text-xs font-semibold text-slate-600">Full name<input class="form-control mt-1.5" name="name" maxlength="100" required value="${escapeHtml(user.name)}"></label>
       <p class="mt-3 text-xs text-slate-500">Email and password are managed by Supabase Authentication.</p>
       ${user.role === "student" ? `<div class="mt-4"><label class="block text-xs font-semibold text-slate-600">Section<select class="form-control mt-1.5 max-w-xl" name="sectionId" data-student-section-select="${escapeHtml(user.id)}"><option value="">Not assigned to a section</option>${activeSections.map(section => `<option value="${section.id}" ${membership?.section_id === section.id ? "selected" : ""}>${escapeHtml(section.name)}${section.active ? "" : " (Archived)"}</option>`).join("")}</select></label><div id="student-offering-choices" class="mt-3 grid gap-2 sm:grid-cols-2">${renderStudentOfferingChoices(user, membership?.section_id || "", selectedOfferingIds)}</div></div>` : ""}
-      ${user.role === "professor" ? `<fieldset class="mt-4"><legend class="text-xs font-semibold text-slate-600">Assigned subjects</legend><div class="mt-2 space-y-2">${[...new Set(activeOfferings.map(offering => offering.section_id))].map(sectionId => {
+      ${["professor", "officer"].includes(user.role) ? `<fieldset class="mt-4"><legend class="text-xs font-semibold text-slate-600">${user.role === "officer" ? "Class officer subjects" : "Assigned subjects"}</legend>${user.role === "officer" ? '<p class="mt-1 text-xs text-slate-500">Choose which subjects this officer can manage in their assigned section.</p>' : ""}<div class="mt-2 space-y-2">${[...new Set(activeOfferings.map(offering => offering.section_id))].map(sectionId => {
         const sectionOfferings = activeOfferings.filter(offering => offering.section_id === sectionId);
         const sectionName = state.sections.find(item => item.id === sectionId)?.name || "Section";
         const selectedCount = sectionOfferings.filter(offering => assignedOfferingIds.includes(offering.id)).length;
@@ -1641,6 +1659,26 @@
         }
         break;
       }
+      case "duplicate-section": {
+        if (!requireRole(["admin"])) return;
+        const section = state.sections.find(item => item.id === id);
+        if (!section) return;
+        const name = prompt("Name for the duplicated section:", `${section.name} (Copy)`);
+        if (name === null) return;
+        if (name.trim().length < 2 || name.trim().length > 80) {
+          return showToast("Section name must be between 2 and 80 characters.", "error");
+        }
+        try {
+          const duplicate = await window.CampusHubStore.duplicateSection(id, name.trim());
+          await refreshSharedData();
+          showSectionKey(duplicate.join_key);
+          showToast(`${duplicate.name} was created with its subjects, professor assignments, schedules, and exams. Copy its new join key now.`);
+        } catch (error) {
+          console.error("CampusHub could not duplicate the section.", error);
+          showToast(error.message || "The section could not be duplicated.", "error");
+        }
+        break;
+      }
       case "toggle-offering-active": {
         if (!requireRole(["admin"])) return;
         const offering = state.offerings.find(item => item.id === id);
@@ -1703,7 +1741,7 @@
         }
         break;
       case "toggle-announcement-form":
-        if (!requireRole(["professor", "officer", "admin"])) return;
+        if (!requireRole(["professor", "officer", "admin"]) || !canManageAnnouncements()) return;
         state.showAnnouncementForm = !state.showAnnouncementForm;
         render();
         break;
@@ -1723,12 +1761,14 @@
         if (!requireRole(["professor", "officer", "admin"])) return;
         if (!announcement || !(state.activeRole === "admin" || announcement.authorRole === state.activeRole)) return showToast("You can only edit announcements posted by your role.", "error");
         if (announcement.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this announcement.", "error");
+        if (state.activeRole === "officer" && !officerHasOffering(announcement.offeringId)) return showToast("You are not assigned to manage this subject.", "error");
         state.editingAnnouncement = id; state.showAnnouncementForm = true; render();
         break;
       case "archive-announcement":
         if (!requireRole(["professor", "officer", "admin"])) return;
         if (!announcement || !(state.activeRole === "admin" || announcement.authorRole === state.activeRole)) return showToast("You can only archive announcements posted by your role.", "error");
         if (announcement.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this announcement.", "error");
+        if (state.activeRole === "officer" && !officerHasOffering(announcement.offeringId)) return showToast("You are not assigned to manage this subject.", "error");
         announcement.archived = true; saveState(); render(); showToast("Announcement archived.");
         break;
       case "restore-announcement":
@@ -1741,6 +1781,7 @@
         if (!requireRole(["professor", "officer", "admin"])) return;
         if (!announcement || !(state.activeRole === "admin" || announcement.authorRole === state.activeRole)) return showToast("You can only delete announcements posted by your role.", "error");
         if (announcement.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this announcement.", "error");
+        if (state.activeRole === "officer" && !officerHasOffering(announcement.offeringId)) return showToast("You are not assigned to manage this subject.", "error");
         if (confirm("Delete this announcement permanently?")) {
           state.announcements = state.announcements.filter(item => item.id !== id); saveState(); render(); showToast("Announcement deleted.");
         }
@@ -1749,7 +1790,7 @@
         acknowledgeAnnouncement(announcement);
         break;
       case "toggle-schedule-form":
-        if (!requireRole(["professor", "officer", "admin"])) return;
+        if (!requireRole(["professor", "officer", "admin"]) || !canManageSchedules()) return;
         state.showScheduleForm = !state.showScheduleForm; render();
         break;
       case "cancel-schedule-form":
@@ -1757,11 +1798,13 @@
         break;
       case "edit-schedule":
         if (!requireRole(["professor", "officer", "admin"])) return;
+        if (schedule && state.activeRole === "officer" && !officerHasOffering(schedule.offeringId)) return showToast("You are not assigned to manage this subject.", "error");
         if (schedule && (canManageAcrossOfferings() || schedule.offeringId === state.activeOfferingId)) { state.editingSchedule = id; state.showScheduleForm = true; render(); }
         else if (schedule) showToast("Select the class offering that contains this schedule.", "error");
         break;
       case "delete-schedule":
         if (!requireRole(["professor", "officer", "admin"])) return;
+        if (schedule && state.activeRole === "officer" && !officerHasOffering(schedule.offeringId)) return showToast("You are not assigned to manage this subject.", "error");
         if (schedule && !canManageAcrossOfferings() && schedule.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this schedule.", "error");
         if (schedule && confirm(`Remove ${schedule.subject} from the timetable?`)) {
           const offering = state.offerings.find(item => item.id === schedule.offeringId) || null;
@@ -1969,6 +2012,7 @@
       const itemToEdit = values.id ? state.announcements.find(entry => entry.id === values.id) : null;
       const targetOffering = state.offerings.find(offering => offering.id === (itemToEdit?.offeringId || state.activeOfferingId));
       if (!targetOffering || !availableOfferings().some(offering => offering.id === targetOffering.id)) return showToast("Choose an active subject from the top navigation first.", "error");
+      if (state.activeRole === "officer" && !officerHasOffering(targetOffering.id)) return showToast("You are not assigned to manage this subject.", "error");
       if (values.id) {
         const item = itemToEdit;
         if (!item || !(state.activeRole === "admin" || item.authorRole === state.activeRole)) return showToast("You cannot edit this announcement.", "error");
@@ -1987,6 +2031,7 @@
       if (values.start >= values.end) return showToast("End time must be later than start time.", "error");
       const targetOffering = offeringFromForm(values);
       if (!targetOffering) return showToast("Choose an active subject in a section you can manage.", "error");
+      if (state.activeRole === "officer" && !officerHasOffering(targetOffering.id)) return showToast("You are not assigned to manage this subject.", "error");
       const previous = values.id ? state.schedules.find(item => item.id === values.id) : null;
       if (previous) {
         if (!canManageAcrossOfferings() && previous.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this schedule.", "error");
@@ -2057,6 +2102,8 @@
           await window.CampusHubStore.setStudentClassAssignments(existing.id, values.sectionId, offeringIds);
         } else if (existing.role === "professor") {
           await window.CampusHubStore.setProfessorOfferings(existing.id, offeringIds);
+        } else if (existing.role === "officer") {
+          await window.CampusHubStore.setOfficerOfferings(existing.id, offeringIds);
         }
         await window.CampusHubStore.updateProfile({ ...existing, name: values.name.trim() });
         persistActiveOffering();
