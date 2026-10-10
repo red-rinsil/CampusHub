@@ -222,6 +222,31 @@
     }));
   }
 
+  async function updateSection(sectionId, name) {
+    assertReady();
+    return unwrap(await client.rpc("update_campus_section", {
+      p_section_id: sectionId,
+      p_name: name
+    }));
+  }
+
+  async function updateOffering(offeringId, subject, courseCode) {
+    assertReady();
+    return unwrap(await client.rpc("update_class_offering", {
+      p_offering_id: offeringId,
+      p_subject: subject,
+      p_course_code: courseCode || ""
+    }));
+  }
+
+  async function setOfferingActive(offeringId, active) {
+    assertReady();
+    return unwrap(await client.rpc("set_class_offering_active", {
+      p_offering_id: offeringId,
+      p_active: active
+    }));
+  }
+
   async function assignSectionOfficer(sectionId, profileId) {
     assertReady();
     return unwrap(await client.rpc("assign_section_officer", {
@@ -283,6 +308,9 @@
     createOffering,
     assignStaff,
     setSectionActive,
+    updateSection,
+    updateOffering,
+    setOfferingActive,
     assignSectionOfficer,
     setOfferingEnrollment,
     inviteUser,
