@@ -148,7 +148,7 @@
 
   function canManageAnnouncements() {
     return ["professor", "admin"].includes(state.activeRole) ||
-      (state.activeRole === "officer" && officerHasOffering(state.activeOfferingId));
+      (state.activeRole === "officer" && announcementTargetOfferings().length > 0);
   }
 
   function canManageSchedules() {
@@ -776,7 +776,8 @@
       ? state.announcements.filter(item => item.sectionId === currentSection()?.id ||
         (!item.sectionId && state.offerings.some(offering => offering.id === item.offeringId && offering.section_id === currentSection()?.id)))
       : offeringScoped(state.announcements);
-    const categories = ["All", "General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High"];
+    const categories = ["All", "General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High",
+      ...new Set(scopedAnnouncements.map(item => item.category).filter(category => !["General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High"].includes(category)))];
     const items = scopedAnnouncements.filter(item => !item.archived && (state.announcementFilter === "All" || item.category === state.announcementFilter)).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     const canCreate = canManageAnnouncements();
     return `${pageIntro("Stay in the loop", "Campus announcements", "Official updates, class changes, and important deadlines from your professors and class officers.", canCreate ? button("＋ Create announcement", "toggle-announcement-form", "", "btn-primary") : "")}
@@ -792,14 +793,34 @@
 
   function announcementForm(item = null) {
     const editing = Boolean(item);
-    const sectionName = state.sections.find(section => section.id === (item?.sectionId || currentOffering()?.section_id))?.name || "";
+    if (!editing) {
+      const offerings = announcementTargetOfferings();
+      return `<form id="announcement-form" class="mt-5 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
+        <div class="mb-4 flex items-center justify-between"><h4 class="font-bold">New announcement</h4>${button("Cancel", "cancel-announcement-form")}</div>
+        <div class="grid gap-3 sm:grid-cols-2">
+          ${field("Title", "title", "", "text", true)}
+          <label class="block text-xs font-semibold text-slate-600">Category<select name="category" class="form-control mt-1.5" data-announcement-category required>${["General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High", "Subject"].map(value => `<option>${value}</option>`).join("")}</select></label>
+          <p class="text-xs leading-5 text-slate-500 sm:col-span-2">Choose one or more sections or all available sections, then select a subject for each target section. If the category is Subject, each selected subject becomes that announcement’s category.</p>
+          ${announcementTargetFields(offerings)}
+          <label class="flex items-center gap-2 text-sm font-medium text-slate-700 sm:col-span-2"><input type="checkbox" name="urgent" class="h-4 w-4 rounded border-slate-300 text-indigo-600"> Mark as urgent</label>
+          <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required></textarea></label>
+        </div>
+        <div class="mt-3 flex justify-end"><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700">Publish announcement</button></div>
+      </form>`;
+    }
+    const sectionName = state.sections.find(section => section.id === item.sectionId)?.name || "";
+    const editingSubjectCategory = item.category === item.subject;
+    const editOfferings = announcementTargetOfferings()
+      .filter(offering => offering.section_id === item.sectionId)
+      .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" }));
     return `<form id="announcement-form" class="mt-5 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
       <div class="mb-4 flex items-center justify-between"><h4 class="font-bold">${editing ? "Edit announcement" : "New announcement"}</h4>${button("Cancel", "cancel-announcement-form")}</div>
       <input type="hidden" name="id" value="${editing ? escapeHtml(item.id) : ""}">
       <div class="grid gap-3 sm:grid-cols-2">
         ${field("Title", "title", item?.title, "text", true)}
         <p class="self-center text-xs font-medium text-slate-500">${escapeHtml(sectionName)}${item?.subject || currentOffering()?.subject ? ` · ${escapeHtml(item?.subject || currentOffering()?.subject)}` : ""}</p>
-        <label class="block text-xs font-semibold text-slate-600">Category<select name="category" class="form-control mt-1.5" required>${["General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High"].map(value => `<option ${item?.category === value ? "selected" : ""}>${value}</option>`).join("")}</select></label>
+        <label class="block text-xs font-semibold text-slate-600">Category<select name="category" class="form-control mt-1.5" data-announcement-category required>${[...new Set(["General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High", "Subject", item.category])].map(value => `<option ${((value === "Subject" && editingSubjectCategory) || (value === item.category && !editingSubjectCategory)) ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}</select></label>
+        <label class="block text-xs font-semibold text-slate-600 sm:col-span-2 ${editingSubjectCategory ? "" : "hidden"}" data-edit-subject-container>Subject category<select name="subjectOfferingId" class="form-control mt-1.5" data-edit-subject-select ${editingSubjectCategory ? "required" : ""}>${editOfferings.map(offering => `<option value="${escapeHtml(offering.id)}" ${offering.id === item.offeringId ? "selected" : ""}>${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</option>`).join("")}</select></label>
         <label class="flex items-center gap-2 self-end pb-3 text-sm font-medium text-slate-700"><input type="checkbox" name="urgent" class="h-4 w-4 rounded border-slate-300 text-indigo-600" ${item?.urgent ? "checked" : ""}> Mark as urgent</label>
         <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required>${editing ? escapeHtml(item.content) : ""}</textarea></label>
       </div>
@@ -807,22 +828,88 @@
     </form>`;
   }
 
+  function announcementTargetOfferings() {
+    if (state.activeRole === "admin") return availableOfferings();
+    if (state.activeRole === "professor") return professorAssignedOfferings();
+    if (state.activeRole === "officer") return availableOfferings().filter(offering => officerHasOffering(offering.id));
+    return [];
+  }
+
+  function announcementTargetFields(offerings) {
+    const allSectionsLabel = state.activeRole === "admin" ? "All available sections" : "All assigned sections";
+    const sections = [...new Set(offerings.map(offering => offering.section_id))]
+      .map(sectionId => state.sections.find(section => section.id === sectionId))
+      .filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    return `<div class="sm:col-span-2">
+      <div class="mb-2 flex flex-wrap items-center justify-between gap-2"><p class="text-xs font-semibold text-slate-600">Sections</p>
+        <label class="flex items-center gap-2 text-xs font-medium text-slate-600"><input type="checkbox" name="allSections" value="all" data-announcement-all-sections class="h-4 w-4 rounded border-slate-300 text-indigo-600"> ${allSectionsLabel}</label>
+      </div>
+      <div class="space-y-2">${sections.map(section => {
+        const sectionOfferings = offerings.filter(offering => offering.section_id === section.id)
+          .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" }));
+        return `<div class="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,1fr)] sm:items-center">
+          <label class="flex items-center gap-2 text-sm font-medium text-slate-700"><input type="checkbox" name="sectionIds" value="${escapeHtml(section.id)}" data-announcement-section class="h-4 w-4 rounded border-slate-300 text-indigo-600"> ${escapeHtml(section.name)}</label>
+          <label class="block text-xs font-semibold text-slate-600"><span data-announcement-subject-label>Subject</span><select class="form-control mt-1 py-2 text-xs" name="offering-${escapeHtml(section.id)}" data-announcement-section-offering="${escapeHtml(section.id)}" aria-label="Subject for ${escapeHtml(section.name)}" disabled required><option value="">Choose a subject</option>${sectionOfferings.map(offering => `<option value="${escapeHtml(offering.id)}">${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</option>`).join("")}</select></label>
+        </div>`;
+      }).join("") || '<p class="text-xs text-slate-500">No sections or subjects are available for your role.</p>'}</div>
+    </div>`;
+  }
+
+  function announcementTargetsFromForm(form, offerings) {
+    const allSections = form.elements.allSections.checked;
+    const sectionIds = allSections
+      ? [...new Set(offerings.map(offering => offering.section_id))]
+      : [...form.querySelectorAll("[data-announcement-section]:checked")].map(input => input.value);
+    if (!sectionIds.length) {
+      showToast("Choose at least one section or select all sections available to your role.", "error");
+      return null;
+    }
+    const targets = sectionIds.map(sectionId => {
+      const subjectSelect = [...form.querySelectorAll("[data-announcement-section-offering]")]
+        .find(select => select.dataset.announcementSectionOffering === sectionId);
+      return offerings.find(offering => offering.id === subjectSelect?.value && offering.section_id === sectionId);
+    });
+    if (targets.some(target => !target)) {
+      showToast("Choose a subject for every selected section.", "error");
+      return null;
+    }
+    return targets;
+  }
+
+  function publishAnnouncements({ targets, title, category, content: announcementContent, urgent, authorRole }) {
+    const createdAt = new Date().toISOString();
+    targets.forEach(targetOffering => {
+      state.announcements.unshift({
+        id: generateId("ann"),
+        title,
+        subject: targetOffering.subject,
+        category: category === "Subject" ? targetOffering.subject : category,
+        content: announcementContent,
+        urgent,
+        author: currentUser()?.name || roles[authorRole].name,
+        authorRole,
+        createdAt,
+        archived: false,
+        acknowledgments: [],
+        offeringId: targetOffering.id,
+        sectionId: targetOffering.section_id
+      });
+    });
+    saveState();
+    render();
+    showToast(`Announcement published to ${targets.length} ${targets.length === 1 ? "section" : "sections"}.`);
+  }
+
   function professorAnnouncementForm() {
-    const sections = professorAssignedSections();
+    const offerings = professorAssignedOfferings();
     return `<form id="professor-announcement-form" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4">
       <div class="mb-4 flex items-center justify-between"><div><h3 class="font-bold">New announcement</h3><p class="mt-1 text-xs text-slate-500">Select one or more sections, or choose all. Choose the subject to associate with the notice in each section.</p></div>${button("Cancel", "cancel-professor-announcement-form")}</div>
       <div class="grid gap-3 sm:grid-cols-2">
         ${field("Title", "title", "", "text", true)}
-        <label class="block text-xs font-semibold text-slate-600">Category<select name="category" class="form-control mt-1.5" required>${["General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High"].map(value => `<option>${value}</option>`).join("")}</select></label>
-        <label class="flex items-center gap-2 text-sm font-medium text-slate-700 sm:col-span-2"><input type="checkbox" name="allSections" value="all" data-announcement-all-sections class="h-4 w-4 rounded border-slate-300 text-indigo-600"> All my assigned sections</label>
-        <div class="space-y-2 sm:col-span-2">${sections.map(section => {
-          const offerings = professorAssignedOfferings().filter(offering => offering.section_id === section.id)
-            .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" }));
-          return `<div class="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,1fr)] sm:items-center">
-            <label class="flex items-center gap-2 text-sm font-medium text-slate-700"><input type="checkbox" name="sectionIds" value="${escapeHtml(section.id)}" data-announcement-section class="h-4 w-4 rounded border-slate-300 text-indigo-600"> ${escapeHtml(section.name)}</label>
-            <select class="form-control py-2 text-xs" name="offering-${escapeHtml(section.id)}" data-announcement-section-offering="${escapeHtml(section.id)}" aria-label="Subject for ${escapeHtml(section.name)}" disabled>${offerings.map(offering => `<option value="${escapeHtml(offering.id)}">${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</option>`).join("")}</select>
-          </div>`;
-        }).join("")}</div>
+        <label class="block text-xs font-semibold text-slate-600">Category<select name="category" class="form-control mt-1.5" data-announcement-category required>${["General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High", "Subject"].map(value => `<option>${value}</option>`).join("")}</select></label>
+        <p class="text-xs leading-5 text-slate-500 sm:col-span-2">Choose one or more sections or all assigned sections, then select a subject for each target section. If the category is Subject, each selected subject becomes that announcement’s category.</p>
+        ${announcementTargetFields(offerings)}
         <label class="flex items-center gap-2 text-sm font-medium text-slate-700 sm:col-span-2"><input type="checkbox" name="urgent" class="h-4 w-4 rounded border-slate-300 text-indigo-600"> Mark as urgent</label>
         <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required></textarea></label>
       </div>
@@ -991,7 +1078,7 @@
         const officer = state.users.find(user => user.id === sectionOfficer?.profile_id);
         const sectionStudents = state.sectionMemberships
           .filter(item => item.section_id === section.id)
-          .map(item => activeUsers.find(user => user.id === item.profile_id && user.role === "student"))
+          .map(item => activeUsers.find(user => user.id === item.profile_id && ["student", "officer"].includes(user.role)))
           .filter(Boolean);
         const activeOfficer = activeUsers.find(user => user.id === sectionOfficer?.profile_id && user.role === "officer");
         const sectionStudentCount = new Set([...sectionStudents.map(user => user.id), ...(activeOfficer ? [activeOfficer.id] : [])]).size;
@@ -1074,7 +1161,7 @@
     return `<form id="user-form"><h2 id="user-edit-heading" class="mb-1 text-xl font-bold">Edit account</h2><p class="mb-4 text-sm text-slate-500">Update account details and class assignments.</p>
       <input type="hidden" name="id" value="${escapeHtml(user.id)}"><label class="block text-xs font-semibold text-slate-600">Full name<input class="form-control mt-1.5" name="name" maxlength="100" required value="${escapeHtml(user.name)}"></label>
       <p class="mt-3 text-xs text-slate-500">Email and password are managed by Supabase Authentication.</p>
-      ${user.role === "student" ? `<div class="mt-4"><label class="block text-xs font-semibold text-slate-600">Section<select class="form-control mt-1.5 max-w-xl" name="sectionId" data-student-section-select="${escapeHtml(user.id)}"><option value="">Not assigned to a section</option>${activeSections.map(section => `<option value="${section.id}" ${membership?.section_id === section.id ? "selected" : ""}>${escapeHtml(section.name)}${section.active ? "" : " (Archived)"}</option>`).join("")}</select></label><div id="student-offering-choices" class="mt-3 grid gap-2 sm:grid-cols-2">${renderStudentOfferingChoices(user, membership?.section_id || "", selectedOfferingIds)}</div></div>` : ""}
+      ${["student", "officer"].includes(user.role) ? `<div class="mt-4"><label class="block text-xs font-semibold text-slate-600">${user.role === "officer" ? "Enrolled section" : "Section"}<select class="form-control mt-1.5 max-w-xl" name="sectionId" data-student-section-select="${escapeHtml(user.id)}"><option value="">Not assigned to a section</option>${activeSections.map(section => `<option value="${section.id}" ${membership?.section_id === section.id ? "selected" : ""}>${escapeHtml(section.name)}${section.active ? "" : " (Archived)"}</option>`).join("")}</select></label><div id="student-offering-choices" class="mt-3 grid gap-2 sm:grid-cols-2">${renderStudentOfferingChoices(user, membership?.section_id || "", selectedOfferingIds)}</div></div>` : ""}
       ${["professor", "officer"].includes(user.role) ? `<fieldset class="mt-4"><legend class="text-xs font-semibold text-slate-600">${user.role === "officer" ? "Class officer subjects" : "Assigned subjects"}</legend>${user.role === "officer" ? '<p class="mt-1 text-xs text-slate-500">Choose which subjects this officer can manage in their assigned section.</p>' : ""}<div class="mt-2 space-y-2">${[...new Set(activeOfferings.map(offering => offering.section_id))].map(sectionId => {
         const sectionOfferings = activeOfferings.filter(offering => offering.section_id === sectionId);
         const sectionName = state.sections.find(item => item.id === sectionId)?.name || "Section";
@@ -1107,12 +1194,12 @@
   function renderStudentOfferingChoices(user, sectionId, selectedOfferingIds) {
     const offerings = state.offerings.filter(item => item.section_id === sectionId && item.active)
       .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" }));
-    if (!sectionId) return '<p class="text-xs text-slate-500">Select a section to manage this student’s subjects.</p>';
+    if (!sectionId) return '<p class="text-xs text-slate-500">Select a section to manage this account’s subjects.</p>';
     if (!offerings.length) return '<p class="text-xs text-slate-500">This section has no active subjects yet.</p>';
     const membership = state.sectionMemberships.some(item => item.profile_id === user.id && item.section_id === sectionId);
     const checkedIds = membership ? selectedOfferingIds : offerings.map(item => item.id);
     const selectedCount = offerings.filter(offering => checkedIds.includes(offering.id)).length;
-    return `<details class="rounded-lg border border-slate-200 bg-white p-3 sm:col-span-2" open><summary class="cursor-pointer text-xs font-semibold text-slate-700">Subjects the student takes <span class="font-normal text-slate-500">(${selectedCount}/${offerings.length} selected)</span></summary><div class="mt-2 grid gap-2 sm:grid-cols-2">${offerings.map(offering => `<label class="flex items-center gap-2 rounded-lg border border-slate-200 p-3 text-xs text-slate-700"><input type="checkbox" name="offeringIds" value="${offering.id}" ${checkedIds.includes(offering.id) ? "checked" : ""}><span>${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</span></label>`).join("")}</div></details>`;
+    return `<details class="rounded-lg border border-slate-200 bg-white p-3 sm:col-span-2" open><summary class="cursor-pointer text-xs font-semibold text-slate-700">Enrolled subjects <span class="font-normal text-slate-500">(${selectedCount}/${offerings.length} selected)</span></summary><div class="mt-2 grid gap-2 sm:grid-cols-2">${offerings.map(offering => `<label class="flex items-center gap-2 rounded-lg border border-slate-200 p-3 text-xs text-slate-700"><input type="checkbox" name="studentOfferingIds" value="${offering.id}" ${checkedIds.includes(offering.id) ? "checked" : ""}><span>${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</span></label>`).join("")}</div></details>`;
   }
 
   function field(label, name, value = "", type = "text", required = false) {
@@ -1556,6 +1643,23 @@
   });
 
   content.addEventListener("change", event => {
+    const announcementCategory = event.target.closest("[data-announcement-category]");
+    if (announcementCategory) {
+      const label = announcementCategory.form.querySelectorAll("[data-announcement-subject-label]");
+      label.forEach(item => {
+        item.textContent = announcementCategory.value === "Subject" ? "Subject category" : "Subject";
+      });
+      const editSubjectContainer = announcementCategory.form.querySelector("[data-edit-subject-container]");
+      const editSubjectSelect = announcementCategory.form.querySelector("[data-edit-subject-select]");
+      if (editSubjectContainer) editSubjectContainer.classList.toggle("hidden", announcementCategory.value !== "Subject");
+      if (editSubjectSelect) {
+        editSubjectSelect.required = announcementCategory.value === "Subject";
+        if (announcementCategory.value === "Subject" && !editSubjectSelect.value) {
+          editSubjectSelect.value = state.announcements.find(item => item.id === announcementCategory.form.elements.id.value)?.offeringId || "";
+        }
+      }
+      return;
+    }
     if (event.target.id === "announcement-filter") {
       state.announcementFilter = event.target.value;
       render();
@@ -2036,51 +2140,46 @@
       }
     } else if (formId === "professor-announcement-form") {
       if (!requireRole(["professor"])) return;
-      const allSections = form.elements.allSections.checked;
-      const sectionIds = allSections
-        ? professorAssignedSections().map(section => section.id)
-        : [...form.querySelectorAll("[data-announcement-section]:checked")].map(input => input.value);
-      if (!sectionIds.length) return showToast("Choose at least one section or select all assigned sections.", "error");
       const assignedOfferings = professorAssignedOfferings();
-      const targets = sectionIds.map(sectionId => {
-        const subjectSelect = [...form.querySelectorAll("[data-announcement-section-offering]")]
-          .find(select => select.dataset.announcementSectionOffering === sectionId);
-        return assignedOfferings.find(offering => offering.id === subjectSelect?.value && offering.section_id === sectionId);
-      });
-      if (targets.some(target => !target)) return showToast("Choose a subject assigned to you for every selected section.", "error");
-      const createdAt = new Date().toISOString();
-      targets.forEach(targetOffering => {
-        state.announcements.unshift({
-          id: generateId("ann"),
-          title: values.title.trim(),
-          subject: targetOffering.subject,
-          category: values.category,
-          content: values.content.trim(),
-          urgent: form.elements.urgent.checked,
-          author: currentUser()?.name || roles.professor.name,
-          authorRole: "professor",
-          createdAt,
-          archived: false,
-          acknowledgments: [],
-          offeringId: targetOffering.id,
-          sectionId: targetOffering.section_id
-        });
-      });
+      const targets = announcementTargetsFromForm(form, assignedOfferings);
+      if (!targets) return;
       state.showProfessorAnnouncementForm = false;
-      saveState();
-      render();
-      showToast(`Announcement published to ${targets.length} ${targets.length === 1 ? "section" : "sections"}.`);
+      publishAnnouncements({
+        targets,
+        title: values.title.trim(),
+        category: values.category,
+        content: values.content.trim(),
+        urgent: form.elements.urgent.checked,
+        authorRole: "professor"
+      });
     } else if (formId === "announcement-form") {
       if (!requireRole(["professor", "officer", "admin"])) return;
       const itemToEdit = values.id ? state.announcements.find(entry => entry.id === values.id) : null;
-      const targetOffering = state.offerings.find(offering => offering.id === (itemToEdit?.offeringId || state.activeOfferingId));
-      if (!targetOffering || !availableOfferings().some(offering => offering.id === targetOffering.id)) return showToast("Choose an active subject from the top navigation first.", "error");
+      if (!itemToEdit) {
+        const targets = announcementTargetsFromForm(form, announcementTargetOfferings());
+        if (!targets) return;
+        state.showAnnouncementForm = false;
+        publishAnnouncements({
+          targets,
+          title: values.title.trim(),
+          category: values.category,
+          content: values.content.trim(),
+          urgent: form.elements.urgent.checked,
+          authorRole: state.activeRole
+        });
+        return;
+      }
+      const editOfferingId = values.category === "Subject"
+        ? values.subjectOfferingId
+        : itemToEdit?.offeringId || state.activeOfferingId;
+      const targetOffering = state.offerings.find(offering => offering.id === editOfferingId);
+      if (!targetOffering || !announcementTargetOfferings().some(offering => offering.id === targetOffering.id)) return showToast("Choose an active subject from a section you can manage.", "error");
       if (state.activeRole === "officer" && !officerHasOffering(targetOffering.id)) return showToast("You are not assigned to manage this subject.", "error");
       if (values.id) {
         const item = itemToEdit;
         if (!item || !(state.activeRole === "admin" || item.authorRole === state.activeRole)) return showToast("You cannot edit this announcement.", "error");
         if (item.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this announcement.", "error");
-        Object.assign(item, { title: values.title.trim(), subject: targetOffering.subject, category: values.category, content: values.content.trim(), urgent: form.elements.urgent.checked, offeringId: targetOffering.id, sectionId: targetOffering.section_id });
+        Object.assign(item, { title: values.title.trim(), subject: targetOffering.subject, category: values.category === "Subject" ? targetOffering.subject : values.category, content: values.content.trim(), urgent: form.elements.urgent.checked, offeringId: targetOffering.id, sectionId: targetOffering.section_id });
         showToast("Announcement updated.");
       } else {
         state.announcements.unshift({ id: generateId("ann"), title: values.title.trim(), subject: targetOffering.subject, category: values.category, content: values.content.trim(), urgent: form.elements.urgent.checked, author: currentUser()?.name || roles[state.activeRole].name, authorRole: state.activeRole, createdAt: new Date().toISOString(), archived: false, acknowledgments: [], offeringId: targetOffering.id, sectionId: targetOffering.section_id });
@@ -2161,11 +2260,13 @@
       }
       try {
         const offeringIds = [...form.querySelectorAll('input[name="offeringIds"]:checked')].map(input => input.value);
+        const studentOfferingIds = [...form.querySelectorAll('input[name="studentOfferingIds"]:checked')].map(input => input.value);
         if (existing.role === "student") {
-          await window.CampusHubStore.setStudentClassAssignments(existing.id, values.sectionId, offeringIds);
+          await window.CampusHubStore.setStudentClassAssignments(existing.id, values.sectionId, studentOfferingIds);
         } else if (existing.role === "professor") {
           await window.CampusHubStore.setProfessorOfferings(existing.id, offeringIds);
         } else if (existing.role === "officer") {
+          await window.CampusHubStore.setStudentClassAssignments(existing.id, values.sectionId, studentOfferingIds);
           await window.CampusHubStore.setOfficerOfferings(existing.id, offeringIds);
         }
         await window.CampusHubStore.updateProfile({ ...existing, name: values.name.trim() });
