@@ -2,7 +2,7 @@
   "use strict";
 
   const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-  const HEADERS = ["Type", "Section", "SectionId", "Subject", "Professor", "Classroom", "DayOfWeek", "Time", "EndTime", "Date", "Title", "Details", "ImportedBy", "ImportedAt"];
+  const HEADERS = ["Type", "Subject", "Professor", "Classroom", "DayOfWeek", "Time", "EndTime", "Date", "Title", "Details"];
   const TYPE_ALIASES = {
     class: "class",
     exam: "Examination",
@@ -103,14 +103,12 @@
     for (const row of rows.slice(1)) {
       const [line, values] = [row.line, row.values];
       const rowErrors = [];
-      if (values.length > rows[0].values.length && values.slice(rows[0].values.length).some(value => value !== "")) {
-        rowErrors.push(`expected at most ${rows[0].values.length} columns, found ${values.length}`);
+      if (values.length !== rows[0].values.length) {
+        rowErrors.push(`expected ${rows[0].values.length} columns, found ${values.length}`);
       }
 
       const typeInput = get(values, "type").toLowerCase();
       const type = TYPE_ALIASES[typeInput];
-      const section = get(values, "section", "sectionname");
-      const sectionId = get(values, "sectionid");
       const subject = get(values, "subject");
       const instructor = get(values, "professor", "instructor");
       const room = get(values, "classroom", "location");
@@ -138,8 +136,6 @@
         if (!rowErrors.length) records.push({
           kind: "class",
           line,
-          section,
-          sectionId,
           subject,
           room,
           day,
@@ -152,8 +148,6 @@
         if (!rowErrors.length) records.push({
           kind: "exam",
           line,
-          section,
-          sectionId,
           type,
           subject,
           title: title || `${subject} ${type === "Quiz" ? "quiz" : "examination"}`,
@@ -172,7 +166,7 @@
   }
 
   function template() {
-    return `${HEADERS.join(",")}\r\nClass,Replace with section,Replace with section ID,Data Structures,Replace with assigned professor,Engineering 204,Monday,09:00,10:30,,,\r\nExam,Replace with section,Replace with section ID,Data Structures,,Engineering Hall 204,,10:00,,2026-11-12,Midterm examination,Bring your student ID\r\nQuiz,Replace with section,Replace with section ID,Database Systems,,Technology 108,,13:30,,2026-11-18,Database quiz,Chapters 1-4`;
+    return `${HEADERS.join(",")}\r\nClass,Data Structures,Replace with assigned professor,Engineering 204,Monday,09:00,10:30,,,\r\nExam,Data Structures,,Engineering Hall 204,,10:00,,2026-11-12,Midterm examination,Bring your student ID\r\nQuiz,Database Systems,,Technology 108,,13:30,,2026-11-18,Database quiz,Chapters 1-4`;
   }
 
   window.CampusHubImport = Object.freeze({ parse, template });
