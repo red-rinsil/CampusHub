@@ -168,7 +168,13 @@
     if (typeof id !== "string" || !id.trim()) throw new Error("A record ID is required.");
 
     const deleted = unwrap(await client.from(table).delete().eq("id", id).select("id"));
-    if (!deleted.length) throw new Error("The record was not deleted. It may already be removed or you may not have permission.");
+    if (!deleted.length) {
+      const visible = unwrap(await client.from(table).select("id").eq("id", id).maybeSingle());
+      if (visible) {
+        throw new Error("The record still exists, but your account is not allowed to delete it. Check your role and subject assignment.");
+      }
+      throw new Error("The record no longer exists or is not visible to your account. Refresh the page and try again.");
+    }
     if (lastSynced) {
       lastSynced[collection] = lastSynced[collection].filter(row => row.id !== id);
     }
