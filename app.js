@@ -94,6 +94,8 @@
   const authModal = document.getElementById("auth-modal");
   const accessModal = document.getElementById("access-modal");
   const sectionModal = document.getElementById("section-modal");
+  const userEditModal = document.getElementById("user-edit-modal");
+  const userEditModalContent = document.getElementById("user-edit-modal-content");
   const importModal = document.getElementById("import-modal");
   const authMessage = document.getElementById("auth-message");
   const accessMessage = document.getElementById("access-message");
@@ -146,6 +148,12 @@
 
   function currentSection() {
     return state.sections.find(item => item.id === state.membership?.section_id) || null;
+  }
+
+  function persistActiveOffering() {
+    if (!state.activeOfferingId) return;
+    try { sessionStorage.setItem("campushub-active-offering", state.activeOfferingId); }
+    catch (error) { console.error("CampusHub could not save the selected class preference.", error); }
   }
 
   function renderOfferingContext() {
@@ -274,6 +282,7 @@
     const section = state.sections.find(item => item.id === currentOffering()?.section_id);
     const context = state.activeTab !== "dashboard" && currentOffering() ? `<div class="mb-5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3"><div><p class="text-xs font-bold text-indigo-900">${escapeHtml(currentOffering().subject)}${currentOffering().course_code ? ` · ${escapeHtml(currentOffering().course_code)}` : ""}</p><p class="text-xs text-indigo-700">${escapeHtml(section?.name || "Section")}</p></div><p class="text-xs text-indigo-700">${state.activeRole === "student" ? "Section information" : "Managing assigned offering"}</p></div>` : "";
     content.innerHTML = context + (pages[state.activeTab] || renderDashboard)();
+    renderUserEditModal();
   }
 
   function pageIntro(eyebrow, title, description, action = "") {
@@ -694,7 +703,6 @@
     })).filter(group => group.users.length);
     return `${pageIntro("Administration", "User management", "Manage accounts, class assignments, access, and status. Account lists are grouped by role and alphabetized.")}
       <div class="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">${counts.map(([role, count]) => `<div class="surface-card p-4"><p class="text-xs font-semibold uppercase tracking-wider text-slate-500">${roles[role].label}s</p><p class="mt-2 text-2xl font-bold">${count}</p><p class="text-xs text-slate-500">active accounts</p></div>`).join("")}</div>
-      ${state.showUserForm ? userForm(state.users.find(item => item.id === state.editingUser)) : ""}
       ${renderSectionsManagement()}
       <section class="surface-card mb-5 p-4 sm:p-5"><h3 class="font-bold">Issue a one-time role key</h3><p class="mt-1 text-xs text-slate-500">The key is shown only once. Share it securely with the intended account holder.</p><div class="mt-3 flex flex-wrap gap-2">${["professor", "officer", "admin"].map(role => button(`Generate ${roles[role].label} key`, "issue-role-key", `data-role="${role}"`)).join("")}</div><div id="issued-key-container" class="mt-3 hidden"><label class="block text-xs font-semibold text-slate-600">Copy this one-time key now<input id="issued-role-key" class="form-control mt-1.5 font-mono" readonly></label></div></section>
       <section class="surface-card overflow-hidden"><div class="border-b border-slate-100 p-4 sm:px-5"><h3 class="font-bold">Campus accounts</h3><p class="mt-1 text-xs text-slate-500">${users.length} accounts · ${users.filter(user => user.active).length} active</p></div>
@@ -760,6 +768,7 @@
       await window.CampusHubStore.updateProfile({ ...user, role });
       user.role = role;
       if (user.id === state.currentUserId) state.activeRole = role;
+      persistActiveOffering();
       dataReady = false;
       await bootstrapSession({ id: state.currentUserId });
       showToast(`${user.name}'s role is now ${roles[role].label}.`);
@@ -785,15 +794,37 @@
         const sectionB = state.sections.find(section => section.id === b.section_id)?.name || "";
         return sectionA.localeCompare(sectionB, undefined, { sensitivity: "base" }) || a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" });
       });
-    return `<form id="user-form" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">Edit account</h3>${button("Cancel", "cancel-user-form")}</div>
+    return `<form id="user-form"><h2 id="user-edit-heading" class="mb-1 text-xl font-bold">Edit account</h2><p class="mb-4 text-sm text-slate-500">Update account details and class assignments.</p>
       <input type="hidden" name="id" value="${escapeHtml(user.id)}"><label class="block text-xs font-semibold text-slate-600">Full name<input class="form-control mt-1.5" name="name" maxlength="100" required value="${escapeHtml(user.name)}"></label>
       <p class="mt-3 text-xs text-slate-500">Email and password are managed by Supabase Authentication.</p>
       ${user.role === "student" ? `<div class="mt-4"><label class="block text-xs font-semibold text-slate-600">Section / block<select class="form-control mt-1.5 max-w-xl" name="sectionId" data-student-section-select="${escapeHtml(user.id)}"><option value="">Not assigned to a section</option>${activeSections.map(section => `<option value="${section.id}" ${membership?.section_id === section.id ? "selected" : ""}>${escapeHtml(section.name)}${section.active ? "" : " (Archived)"}</option>`).join("")}</select></label><div id="student-offering-choices" class="mt-3 grid gap-2 sm:grid-cols-2">${renderStudentOfferingChoices(user, membership?.section_id || "", selectedOfferingIds)}</div></div>` : ""}
-      ${user.role === "professor" ? `<fieldset class="mt-4"><legend class="text-xs font-semibold text-slate-600">Assigned subjects</legend><div class="mt-2 grid gap-2 sm:grid-cols-2">${activeOfferings.map(offering => {
-        const sectionName = state.sections.find(item => item.id === offering.section_id)?.name || "Section";
-        return `<label class="flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3 text-xs"><input class="mt-0.5" type="checkbox" name="offeringIds" value="${offering.id}" ${assignedOfferingIds.includes(offering.id) ? "checked" : ""}><span><span class="font-semibold text-slate-700">${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</span><span class="block text-slate-500">${escapeHtml(sectionName)}</span></span></label>`;
+      ${user.role === "professor" ? `<fieldset class="mt-4"><legend class="text-xs font-semibold text-slate-600">Assigned subjects</legend><div class="mt-2 space-y-2">${[...new Set(activeOfferings.map(offering => offering.section_id))].map(sectionId => {
+        const sectionOfferings = activeOfferings.filter(offering => offering.section_id === sectionId);
+        const sectionName = state.sections.find(item => item.id === sectionId)?.name || "Section";
+        const selectedCount = sectionOfferings.filter(offering => assignedOfferingIds.includes(offering.id)).length;
+        return `<details class="rounded-lg border border-slate-200 bg-white p-3"><summary class="cursor-pointer text-xs font-semibold text-slate-700">${escapeHtml(sectionName)} <span class="font-normal text-slate-500">(${selectedCount}/${sectionOfferings.length} assigned)</span></summary><div class="mt-2 grid gap-2 sm:grid-cols-2">${sectionOfferings.map(offering => {
+        return `<label class="flex items-start gap-2 rounded-lg border border-slate-200 p-3 text-xs"><input class="mt-0.5" type="checkbox" name="offeringIds" value="${offering.id}" ${assignedOfferingIds.includes(offering.id) ? "checked" : ""}><span class="font-semibold text-slate-700">${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</span></label>`;
+      }).join("")}</div></details>`;
       }).join("") || '<p class="text-xs text-slate-500">No active subjects are available to assign.</p>'}</div></fieldset>` : ""}
-      <div class="mt-4 flex justify-end"><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white">Save account</button></div></form>`;
+      <div class="mt-5 flex justify-end gap-2">${button("Cancel", "cancel-user-form")}<button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white">Save account</button></div></form>`;
+  }
+
+  function renderUserEditModal() {
+    if (!state.showUserForm || state.activeRole !== "admin") {
+      userEditModal.hidden = true;
+      userEditModalContent.replaceChildren();
+      return;
+    }
+    const user = state.users.find(item => item.id === state.editingUser);
+    if (!user) {
+      state.showUserForm = false;
+      state.editingUser = null;
+      userEditModal.hidden = true;
+      userEditModalContent.replaceChildren();
+      return;
+    }
+    userEditModalContent.innerHTML = userForm(user);
+    userEditModal.hidden = false;
   }
 
   function renderStudentOfferingChoices(user, sectionId, selectedOfferingIds) {
@@ -803,7 +834,8 @@
     if (!offerings.length) return '<p class="text-xs text-slate-500">This section has no active subjects yet.</p>';
     const membership = state.sectionMemberships.some(item => item.profile_id === user.id && item.section_id === sectionId);
     const checkedIds = membership ? selectedOfferingIds : offerings.map(item => item.id);
-    return `<p class="text-xs font-semibold text-slate-600 sm:col-span-2">Subjects the student takes</p>${offerings.map(offering => `<label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700"><input type="checkbox" name="offeringIds" value="${offering.id}" ${checkedIds.includes(offering.id) ? "checked" : ""}><span>${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</span></label>`).join("")}`;
+    const selectedCount = offerings.filter(offering => checkedIds.includes(offering.id)).length;
+    return `<details class="rounded-lg border border-slate-200 bg-white p-3 sm:col-span-2" open><summary class="cursor-pointer text-xs font-semibold text-slate-700">Subjects the student takes <span class="font-normal text-slate-500">(${selectedCount}/${offerings.length} selected)</span></summary><div class="mt-2 grid gap-2 sm:grid-cols-2">${offerings.map(offering => `<label class="flex items-center gap-2 rounded-lg border border-slate-200 p-3 text-xs text-slate-700"><input type="checkbox" name="offeringIds" value="${offering.id}" ${checkedIds.includes(offering.id) ? "checked" : ""}><span>${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</span></label>`).join("")}</div></details>`;
   }
 
   function field(label, name, value = "", type = "text", required = false) {
@@ -857,6 +889,9 @@
     authModal.hidden = true;
     accessModal.hidden = true;
     sectionModal.hidden = true;
+    userEditModal.hidden = true;
+    state.showUserForm = false;
+    state.editingUser = null;
   }
 
   async function bootstrapSession(authUser) {
@@ -907,6 +942,9 @@
       state.activeOfferingId = activeOfferings.some(item => item.id === state.activeOfferingId)
         ? state.activeOfferingId
         : (activeOfferings.find(item => item.id === preferenceOffering)?.id || activeOfferings[0]?.id || null);
+      if (state.activeOfferingId) {
+        persistActiveOffering();
+      }
       dataReady = true;
       render();
       if (!realtimeChannel) {
@@ -967,7 +1005,10 @@
   });
 
   document.querySelectorAll("[data-close-modal]").forEach(button => {
-    button.addEventListener("click", closeModals);
+    button.addEventListener("click", () => {
+      closeModals();
+      render();
+    });
   });
   document.getElementById("join-section-button").addEventListener("click", () => {
     clearFormMessage(document.getElementById("section-message"));
@@ -977,8 +1018,7 @@
 
   document.getElementById("active-offering-select").addEventListener("change", event => {
     state.activeOfferingId = event.target.value;
-    try { sessionStorage.setItem("campushub-active-offering", state.activeOfferingId); }
-    catch (error) { console.error("CampusHub could not save the selected class preference.", error); }
+    persistActiveOffering();
     render();
   });
 
@@ -1159,6 +1199,7 @@
         state.activeRole = "student";
         render();
       } else {
+        persistActiveOffering();
         dataReady = false;
         await bootstrapSession({ id: state.currentUserId });
       }
@@ -1203,6 +1244,7 @@
   async function refreshSharedData() {
     const userId = state.currentUserId;
     if (!userId) return;
+    persistActiveOffering();
     dataReady = false;
     await bootstrapSession({ id: userId });
   }
@@ -1488,7 +1530,7 @@
     }
   });
 
-  content.addEventListener("submit", async event => {
+  async function handleFormSubmit(event) {
     const form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
     const formId = form.getAttribute("id");
@@ -1662,6 +1704,9 @@
           await window.CampusHubStore.setProfessorOfferings(existing.id, offeringIds);
         }
         await window.CampusHubStore.updateProfile({ ...existing, name: values.name.trim() });
+        persistActiveOffering();
+        state.showUserForm = false;
+        state.editingUser = null;
         dataReady = false;
         await bootstrapSession({ id: state.currentUserId });
         showToast(`${values.name.trim()}'s account and class assignments were updated.`);
@@ -1671,6 +1716,22 @@
       } finally {
         if (submitButton) submitButton.disabled = false;
       }
+    }
+  }
+
+  content.addEventListener("submit", handleFormSubmit);
+  userEditModal.addEventListener("submit", handleFormSubmit);
+  userEditModal.addEventListener("click", event => {
+    const action = event.target.closest("[data-action]");
+    if (action?.dataset.action === "cancel-user-form") {
+      state.showUserForm = false;
+      state.editingUser = null;
+      render();
+      return;
+    }
+    if (event.target === userEditModal) {
+      closeModals();
+      render();
     }
   });
 
