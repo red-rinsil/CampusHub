@@ -175,6 +175,10 @@
       }
       throw new Error("The record no longer exists or is not visible to your account. Refresh the page and try again.");
     }
+    const remaining = unwrap(await client.from(table).select("id").eq("id", id).maybeSingle());
+    if (remaining) {
+      throw new Error("Supabase reported the delete, but the record is still present. Check database triggers or another client restoring it.");
+    }
     if (lastSynced) {
       lastSynced[collection] = lastSynced[collection].filter(row => row.id !== id);
     }
