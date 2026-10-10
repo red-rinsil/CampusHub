@@ -278,14 +278,20 @@
     }));
   }
 
-  async function inviteUser(name, email) {
+  async function setStudentClassAssignments(profileId, sectionId, offeringIds) {
     assertReady();
-    return unwrap(await client.functions.invoke("admin-create-user", {
-      body: {
-        name,
-        email,
-        redirectTo: window.location.href.split("#")[0]
-      }
+    return unwrap(await client.rpc("set_student_class_assignments", {
+      p_profile_id: profileId,
+      p_section_id: sectionId || null,
+      p_offering_ids: offeringIds
+    }));
+  }
+
+  async function setProfessorOfferings(profileId, offeringIds) {
+    assertReady();
+    return unwrap(await client.rpc("set_professor_offerings", {
+      p_profile_id: profileId,
+      p_offering_ids: offeringIds
     }));
   }
 
@@ -329,7 +335,8 @@
     deleteOffering,
     assignSectionOfficer,
     setOfferingEnrollment,
-    inviteUser,
+    setStudentClassAssignments,
+    setProfessorOfferings,
     changePassword,
     watch
   });

@@ -272,7 +272,7 @@
       settings: renderSettings
     };
     const section = state.sections.find(item => item.id === currentOffering()?.section_id);
-    const context = currentOffering() ? `<div class="mb-5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3"><div><p class="text-xs font-bold text-indigo-900">${escapeHtml(currentOffering().subject)}${currentOffering().course_code ? ` · ${escapeHtml(currentOffering().course_code)}` : ""}</p><p class="text-xs text-indigo-700">${escapeHtml(section?.name || "Section")}</p></div><p class="text-xs text-indigo-700">${state.activeRole === "student" ? "Section information" : "Managing assigned offering"}</p></div>` : "";
+    const context = state.activeTab !== "dashboard" && currentOffering() ? `<div class="mb-5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3"><div><p class="text-xs font-bold text-indigo-900">${escapeHtml(currentOffering().subject)}${currentOffering().course_code ? ` · ${escapeHtml(currentOffering().course_code)}` : ""}</p><p class="text-xs text-indigo-700">${escapeHtml(section?.name || "Section")}</p></div><p class="text-xs text-indigo-700">${state.activeRole === "student" ? "Section information" : "Managing assigned offering"}</p></div>` : "";
     content.innerHTML = context + (pages[state.activeTab] || renderDashboard)();
   }
 
@@ -510,7 +510,9 @@
     const urgent = scoped.announcements.filter(item => item.urgent && !item.archived).slice(0, 2);
     const studentCount = state.studentCounts[state.activeOfferingId] || 0;
     const unread = scoped.announcements.filter(item => !item.archived && !item.acknowledgments.includes(activeUserId())).length;
+    const dashboardSection = state.sections.find(item => item.id === (state.membership?.section_id || currentOffering()?.section_id));
     return `${pageIntro("Your campus, at a glance", `Welcome back, ${escapeHtml((currentUser()?.name || roles[state.activeRole].name).split(" ")[0])}`, "Your classes, key dates, and the updates that matter — organized in one place.", bulkScheduleActions())}
+      ${dashboardSection ? `<p class="mb-5 -mt-4 text-sm font-semibold text-indigo-700">${escapeHtml(dashboardSection.name)}</p>` : ""}
       <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         ${metricCard("Upcoming academic dates", nextEvents.length, "Across exams, quizzes & deadlines", "text-indigo-600", "calendar")}
         ${metricCard("Active announcements", scoped.announcements.filter(item => !item.archived).length, "Updates from your campus", "text-violet-600", "bell")}
@@ -683,25 +685,31 @@
   }
 
   function renderManagement() {
-    const users = state.users;
+    const roleOrder = ["admin", "professor", "officer", "student"];
+    const users = [...state.users].sort((a, b) => roleOrder.indexOf(a.role) - roleOrder.indexOf(b.role) || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
     const counts = ["student", "professor", "officer", "admin"].map(role => [role, users.filter(user => user.role === role && user.active).length]);
-    return `${pageIntro("Administration", "User management", "Invite accounts, assign access, update names, or deactivate accounts here.", button("＋ Invite user", "toggle-user-form", "", "btn-primary"))}
+    const groupedUsers = roleOrder.map(role => ({
+      role,
+      users: users.filter(user => user.role === role)
+    })).filter(group => group.users.length);
+    return `${pageIntro("Administration", "User management", "Manage accounts, class assignments, access, and status. Account lists are grouped by role and alphabetized.")}
       <div class="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">${counts.map(([role, count]) => `<div class="surface-card p-4"><p class="text-xs font-semibold uppercase tracking-wider text-slate-500">${roles[role].label}s</p><p class="mt-2 text-2xl font-bold">${count}</p><p class="text-xs text-slate-500">active accounts</p></div>`).join("")}</div>
       ${state.showUserForm ? userForm(state.users.find(item => item.id === state.editingUser)) : ""}
       ${renderSectionsManagement()}
       <section class="surface-card mb-5 p-4 sm:p-5"><h3 class="font-bold">Issue a one-time role key</h3><p class="mt-1 text-xs text-slate-500">The key is shown only once. Share it securely with the intended account holder.</p><div class="mt-3 flex flex-wrap gap-2">${["professor", "officer", "admin"].map(role => button(`Generate ${roles[role].label} key`, "issue-role-key", `data-role="${role}"`)).join("")}</div><div id="issued-key-container" class="mt-3 hidden"><label class="block text-xs font-semibold text-slate-600">Copy this one-time key now<input id="issued-role-key" class="form-control mt-1.5 font-mono" readonly></label></div></section>
       <section class="surface-card overflow-hidden"><div class="border-b border-slate-100 p-4 sm:px-5"><h3 class="font-bold">Campus accounts</h3><p class="mt-1 text-xs text-slate-500">${users.length} accounts · ${users.filter(user => user.active).length} active</p></div>
-      <div class="overflow-x-auto"><table class="w-full min-w-[720px] text-left"><thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th class="px-5 py-3 font-semibold">User</th><th class="px-5 py-3 font-semibold">Role</th><th class="px-5 py-3 font-semibold">Status</th><th class="px-5 py-3 text-right font-semibold">Actions</th></tr></thead><tbody class="divide-y divide-slate-100">${users.map(user => `<tr class="${user.active ? "" : "opacity-55"}"><td class="px-5 py-4"><p class="text-sm font-semibold">${escapeHtml(user.name)}</p><p class="mt-0.5 text-xs text-slate-500">${escapeHtml(user.email)}</p></td><td class="px-5 py-4"><select class="form-control w-auto min-w-36 py-2 text-xs" data-user-role="${escapeHtml(user.id)}" aria-label="Role for ${escapeHtml(user.name)}">${Object.entries(roles).map(([role, info]) => `<option value="${role}" ${user.role === role ? "selected" : ""}>${info.label}</option>`).join("")}</select></td><td class="px-5 py-4"><span class="inline-flex items-center gap-1.5 text-xs font-medium ${user.active ? "text-emerald-700" : "text-slate-500"}"><span class="h-1.5 w-1.5 rounded-full ${user.active ? "bg-emerald-500" : "bg-slate-400"}"></span>${user.active ? "Active" : "Deactivated"}</span></td><td class="px-5 py-4"><div class="flex justify-end gap-2">${button("Edit", "edit-user", `data-id="${user.id}"`)}${button(user.active ? "Deactivate" : "Reactivate", "toggle-user-active", `data-id="${user.id}"`, user.active ? "btn-danger" : "btn-secondary")}</div></td></tr>`).join("")}</tbody></table></div></section>`;
+      ${groupedUsers.map(group => `<details class="border-b border-slate-100 last:border-0" open><summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">${roles[group.role].label}s (${group.users.length})</summary><div class="overflow-x-auto"><table class="w-full min-w-[720px] text-left"><thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th class="px-5 py-3 font-semibold">User</th><th class="px-5 py-3 font-semibold">Role</th><th class="px-5 py-3 font-semibold">Status</th><th class="px-5 py-3 text-right font-semibold">Actions</th></tr></thead><tbody class="divide-y divide-slate-100">${group.users.map(user => `<tr class="${user.active ? "" : "opacity-55"}"><td class="px-5 py-4"><p class="text-sm font-semibold">${escapeHtml(user.name)}</p><p class="mt-0.5 text-xs text-slate-500">${escapeHtml(user.email)}</p></td><td class="px-5 py-4"><select class="form-control w-auto min-w-36 py-2 text-xs" data-user-role="${escapeHtml(user.id)}" aria-label="Role for ${escapeHtml(user.name)}">${Object.entries(roles).map(([role, info]) => `<option value="${role}" ${user.role === role ? "selected" : ""}>${info.label}</option>`).join("")}</select></td><td class="px-5 py-4"><span class="inline-flex items-center gap-1.5 text-xs font-medium ${user.active ? "text-emerald-700" : "text-slate-500"}"><span class="h-1.5 w-1.5 rounded-full ${user.active ? "bg-emerald-500" : "bg-slate-400"}"></span>${user.active ? "Active" : "Deactivated"}</span></td><td class="px-5 py-4"><div class="flex justify-end gap-2">${button("Edit", "edit-user", `data-id="${user.id}"`)}${button(user.active ? "Deactivate" : "Reactivate", "toggle-user-active", `data-id="${user.id}"`, user.active ? "btn-danger" : "btn-secondary")}</div></td></tr>`).join("")}</tbody></table></div></details>`).join("")}</section>`;
   }
 
   function renderSectionsManagement() {
     const activeUsers = state.users.filter(user => user.active);
-    const sections = state.sections;
+    const sections = [...state.sections].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
     return `<section class="surface-card mb-5 p-4 sm:p-5">
       <div><p class="text-xs font-bold uppercase tracking-wider text-indigo-600">Class structure</p><h3 class="mt-1 text-lg font-bold">Sections, blocks & class offerings</h3><p class="mt-1 text-xs leading-5 text-slate-500">Assign one class officer to each section. Professors are assigned per subject offering; students can be enrolled in only the subjects they take.</p></div>
       <form id="section-form" class="mt-4 flex flex-wrap items-end gap-3"><label class="block min-w-56 flex-1 text-xs font-semibold text-slate-600">New section/block name<input class="form-control mt-1.5" name="name" maxlength="80" placeholder="BSIT 2A" required></label><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white">Create section & key</button></form>
-      <div class="mt-4 space-y-4">${sections.length ? sections.map(section => {
-        const offerings = state.offerings.filter(item => item.section_id === section.id);
+      <div class="mt-4 space-y-3">${sections.length ? sections.map(section => {
+        const offerings = state.offerings.filter(item => item.section_id === section.id)
+          .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" }));
         const sectionOfficer = state.sectionOfficers.find(item => item.section_id === section.id);
         const officer = state.users.find(user => user.id === sectionOfficer?.profile_id);
         const sectionStudents = state.sectionMemberships
@@ -709,21 +717,21 @@
           .map(item => activeUsers.find(user => user.id === item.profile_id && user.role === "student"))
           .filter(Boolean);
         const officerOptions = activeUsers.filter(user => user.role === "officer");
-        return `<article class="rounded-xl border border-slate-200 p-4"><div class="flex flex-wrap items-center justify-between gap-3"><div><h4 class="font-bold">${escapeHtml(section.name)}</h4><p class="mt-1 text-xs text-slate-500">${offerings.length} class offering(s) · ${sectionStudents.length} active student(s) · ${section.active ? "Active" : "Inactive (archived)"}</p></div><div class="flex flex-wrap gap-2">${section.active ? button("Rotate join key", "rotate-section-key", `data-id="${section.id}"`) : ""}${button(section.active ? "Archive section" : "Restore section", "toggle-section-active", `data-id="${section.id}"`, section.active ? "btn-danger" : "btn-secondary")}${button("Delete permanently", "delete-section", `data-id="${section.id}"`, "btn-danger")}</div></div>
+        return `<details class="rounded-xl border border-slate-200 p-4"><summary class="cursor-pointer font-bold">${escapeHtml(section.name)}<span class="ml-2 text-xs font-normal text-slate-500">${offerings.length} subject(s) · ${sectionStudents.length} active student(s) · ${section.active ? "Active" : "Archived"}</span></summary><div class="mt-3"><div class="mb-3 flex flex-wrap justify-end gap-2">${section.active ? button("Rotate join key", "rotate-section-key", `data-id="${section.id}"`) : ""}${button(section.active ? "Archive section" : "Restore section", "toggle-section-active", `data-id="${section.id}"`, section.active ? "btn-danger" : "btn-secondary")}${button("Delete permanently", "delete-section", `data-id="${section.id}"`, "btn-danger")}</div>
           <form id="section-edit-form-${section.id}" data-section-id="${section.id}" class="mt-3 flex flex-wrap items-end gap-2"><label class="min-w-48 flex-1 text-xs font-semibold text-slate-600">Edit section / block name<input class="form-control mt-1 py-2 text-sm" name="name" maxlength="80" required value="${escapeHtml(section.name)}"></label><button class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Save name</button></form>
           <form id="section-officer-form-${section.id}" data-section-id="${section.id}" class="mt-4 flex flex-wrap items-center gap-2"><label class="min-w-48 flex-1 text-xs font-semibold text-slate-600">Section class officer<select class="form-control mt-1 py-2 text-xs" name="profileId" required><option value="">Select one class officer</option>${officerOptions.map(person => `<option value="${person.id}" ${person.id === officer?.id ? "selected" : ""}>${escapeHtml(person.name)} (${escapeHtml(person.email)})</option>`).join("")}</select></label><button class="mt-4 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Assign / replace officer</button>${officer ? `${button("Remove officer", "clear-section-officer", `data-id="${section.id}"`, "btn-danger")}<span class="text-xs text-slate-500">${officer.active ? "" : "Assigned account is inactive"}</span>` : ""}</form>
           <form id="offering-form-${section.id}" data-section-id="${section.id}" class="mt-4 grid gap-2 sm:grid-cols-[1fr_12rem_auto]"><label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" maxlength="120" placeholder="Data Structures" required></label><label class="block text-xs font-semibold text-slate-600">Course code (optional)<input class="form-control mt-1.5" name="courseCode" maxlength="32" placeholder="CS201"></label><button class="self-end rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" ${section.active ? "" : "disabled"}>Add offering</button></form>
-          <div class="mt-3 space-y-3">${offerings.map(offering => {
+          <div class="mt-3 space-y-2">${offerings.map(offering => {
             const assigned = state.assignments.filter(item => item.offering_id === offering.id && item.staff_role === "professor");
             const enrolledIds = new Set(state.enrollments.filter(item => item.offering_id === offering.id).map(item => item.profile_id));
             const candidates = sectionStudents.filter(person => !enrolledIds.has(person.id));
             const enrolled = sectionStudents.filter(person => enrolledIds.has(person.id));
-            return `<div class="rounded-lg bg-slate-50 p-3"><div class="flex flex-wrap items-center justify-between gap-2"><p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Class / subject · ${offering.active ? "Active" : "Inactive (archived)"}</p><div class="flex flex-wrap gap-2">${button(offering.active ? "Archive class" : "Restore class", "toggle-offering-active", `data-id="${offering.id}"`, offering.active ? "btn-danger" : "btn-secondary")}${button("Delete permanently", "delete-offering", `data-id="${offering.id}"`, "btn-danger")}</div></div>
+            return `<details class="rounded-lg bg-slate-50 p-3"><summary class="cursor-pointer text-sm font-semibold text-slate-700">${escapeHtml(offering.subject)}${offering.course_code ? ` · ${escapeHtml(offering.course_code)}` : ""}<span class="ml-2 text-xs font-normal text-slate-500">${offering.active ? "Active" : "Archived"}</span></summary><div class="mt-2"><div class="flex flex-wrap justify-end gap-2">${button(offering.active ? "Archive class" : "Restore class", "toggle-offering-active", `data-id="${offering.id}"`, offering.active ? "btn-danger" : "btn-secondary")}${button("Delete permanently", "delete-offering", `data-id="${offering.id}"`, "btn-danger")}</div>
               <form id="offering-edit-form-${offering.id}" data-offering-id="${offering.id}" class="mt-2 grid gap-2 sm:grid-cols-[1fr_12rem_auto]"><label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1 py-2 text-sm" name="subject" maxlength="120" required value="${escapeHtml(offering.subject)}"></label><label class="block text-xs font-semibold text-slate-600">Course code<input class="form-control mt-1 py-2 text-sm" name="courseCode" maxlength="32" value="${escapeHtml(offering.course_code || "")}"></label><button class="self-end rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Save class</button></form>
               <form id="staff-assignment-form-${offering.id}-professor" data-offering-id="${offering.id}" data-staff-role="professor" class="mt-2 flex flex-wrap items-center gap-2"><span class="w-24 text-xs font-medium text-slate-600">Professor</span><select class="form-control min-w-48 flex-1 py-2 text-xs" name="profileId" required><option value="">Assign professor</option>${activeUsers.filter(person => person.role === "professor").map(person => `<option value="${person.id}">${escapeHtml(person.name)} (${escapeHtml(person.email)})</option>`).join("")}</select><button class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Assign</button>${assigned.map(item => { const person = activeUsers.find(user => user.id === item.profile_id); return person ? `<span class="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-xs text-slate-600">${escapeHtml(person.name)}${button("×", "remove-offering-staff", `data-offering-id="${offering.id}" data-profile-id="${person.id}" data-role="professor"`, "btn-danger")}</span>` : ""; }).join("")}</form>
-              <div class="mt-3 border-t border-slate-200 pt-3"><p class="text-xs font-semibold text-slate-700">Enrolled students (${enrolled.length})</p><form id="enrollment-form-${offering.id}" data-offering-id="${offering.id}" class="mt-2 flex flex-wrap items-center gap-2"><select class="form-control min-w-48 flex-1 py-2 text-xs" name="profileId" ${candidates.length && offering.active ? "required" : "disabled"}><option value="">${offering.active ? (candidates.length ? "Add a student taking this subject" : "All section students are enrolled") : "Restore this class to edit enrollments"}</option>${candidates.map(person => `<option value="${person.id}">${escapeHtml(person.name)} (${escapeHtml(person.email)})</option>`).join("")}</select><button class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700" ${candidates.length && offering.active ? "" : "disabled"}>Enroll student</button></form><div class="mt-2 flex flex-wrap gap-2">${enrolled.map(person => `<span class="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1 pl-2.5 pr-1 text-xs text-slate-600">${escapeHtml(person.name)}${button("×", "remove-offering-student", `data-offering-id="${offering.id}" data-profile-id="${person.id}" ${offering.active ? "" : "disabled"}`, "btn-danger")}</span>`).join("") || '<span class="text-xs text-slate-500">No students enrolled in this subject.</span>'}</div></div></div>`;
+              <div class="mt-3 border-t border-slate-200 pt-3"><p class="text-xs font-semibold text-slate-700">Enrolled students (${enrolled.length})</p><form id="enrollment-form-${offering.id}" data-offering-id="${offering.id}" class="mt-2 flex flex-wrap items-center gap-2"><select class="form-control min-w-48 flex-1 py-2 text-xs" name="profileId" ${candidates.length && offering.active ? "required" : "disabled"}><option value="">${offering.active ? (candidates.length ? "Add a student taking this subject" : "All section students are enrolled") : "Restore this class to edit enrollments"}</option>${candidates.map(person => `<option value="${person.id}">${escapeHtml(person.name)} (${escapeHtml(person.email)})</option>`).join("")}</select><button class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700" ${candidates.length && offering.active ? "" : "disabled"}>Enroll student</button></form><div class="mt-2 flex flex-wrap gap-2">${enrolled.map(person => `<span class="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1 pl-2.5 pr-1 text-xs text-slate-600">${escapeHtml(person.name)}${button("×", "remove-offering-student", `data-offering-id="${offering.id}" data-profile-id="${person.id}" ${offering.active ? "" : "disabled"}`, "btn-danger")}</span>`).join("") || '<span class="text-xs text-slate-500">No students enrolled in this subject.</span>'}</div></div></div></details>`;
           }).join("") || '<p class="mt-3 text-xs text-slate-500">No offerings created for this section yet.</p>'}</div>
-        </article>`;
+        </div></details>`;
       }).join("") : emptyState("No sections created", "Create a section/block, then add its subject offerings and assign staff.")}</div>
       <div id="section-key-container" class="mt-4 hidden rounded-xl border border-emerald-200 bg-emerald-50 p-4"><p class="text-xs font-semibold text-emerald-800">Share this reusable section key with students in this block</p><input id="section-key-output" class="form-control mt-2 font-mono" readonly></div>
     </section>`;
@@ -765,15 +773,37 @@
   }
 
   function userForm(user = null) {
-    if (!user) {
-      return `<form id="user-form" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">Invite account</h3>${button("Cancel", "cancel-user-form")}</div>
-        <div class="grid gap-3 sm:grid-cols-2"><label class="block text-xs font-semibold text-slate-600">Full name<input class="form-control mt-1.5" name="name" maxlength="100" required></label>
-        <label class="block text-xs font-semibold text-slate-600">Email address<input class="form-control mt-1.5" name="email" type="email" maxlength="254" required></label></div>
-        <p class="mt-3 text-xs text-slate-500">The user will receive a secure email invitation and create their password through Supabase.</p><div class="mt-4 flex justify-end"><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white">Send invitation</button></div></form>`;
-    }
+    const membership = state.sectionMemberships.find(item => item.profile_id === user.id);
+    const selectedOfferingIds = state.enrollments.filter(item => item.profile_id === user.id).map(item => item.offering_id);
+    const assignedOfferingIds = state.assignments.filter(item => item.profile_id === user.id && item.staff_role === "professor").map(item => item.offering_id);
+    const activeSections = [...state.sections]
+      .filter(item => item.active || item.id === membership?.section_id)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    const activeOfferings = [...state.offerings].filter(offering => offering.active && state.sections.some(section => section.id === offering.section_id && section.active))
+      .sort((a, b) => {
+        const sectionA = state.sections.find(section => section.id === a.section_id)?.name || "";
+        const sectionB = state.sections.find(section => section.id === b.section_id)?.name || "";
+        return sectionA.localeCompare(sectionB, undefined, { sensitivity: "base" }) || a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" });
+      });
     return `<form id="user-form" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">Edit account</h3>${button("Cancel", "cancel-user-form")}</div>
       <input type="hidden" name="id" value="${escapeHtml(user.id)}"><label class="block text-xs font-semibold text-slate-600">Full name<input class="form-control mt-1.5" name="name" maxlength="100" required value="${escapeHtml(user.name)}"></label>
-      <p class="mt-3 text-xs text-slate-500">Email and password are managed by Supabase Authentication.</p><div class="mt-4 flex justify-end"><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white">Save account</button></div></form>`;
+      <p class="mt-3 text-xs text-slate-500">Email and password are managed by Supabase Authentication.</p>
+      ${user.role === "student" ? `<div class="mt-4"><label class="block text-xs font-semibold text-slate-600">Section / block<select class="form-control mt-1.5 max-w-xl" name="sectionId" data-student-section-select="${escapeHtml(user.id)}"><option value="">Not assigned to a section</option>${activeSections.map(section => `<option value="${section.id}" ${membership?.section_id === section.id ? "selected" : ""}>${escapeHtml(section.name)}${section.active ? "" : " (Archived)"}</option>`).join("")}</select></label><div id="student-offering-choices" class="mt-3 grid gap-2 sm:grid-cols-2">${renderStudentOfferingChoices(user, membership?.section_id || "", selectedOfferingIds)}</div></div>` : ""}
+      ${user.role === "professor" ? `<fieldset class="mt-4"><legend class="text-xs font-semibold text-slate-600">Assigned subjects</legend><div class="mt-2 grid gap-2 sm:grid-cols-2">${activeOfferings.map(offering => {
+        const sectionName = state.sections.find(item => item.id === offering.section_id)?.name || "Section";
+        return `<label class="flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3 text-xs"><input class="mt-0.5" type="checkbox" name="offeringIds" value="${offering.id}" ${assignedOfferingIds.includes(offering.id) ? "checked" : ""}><span><span class="font-semibold text-slate-700">${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</span><span class="block text-slate-500">${escapeHtml(sectionName)}</span></span></label>`;
+      }).join("") || '<p class="text-xs text-slate-500">No active subjects are available to assign.</p>'}</div></fieldset>` : ""}
+      <div class="mt-4 flex justify-end"><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white">Save account</button></div></form>`;
+  }
+
+  function renderStudentOfferingChoices(user, sectionId, selectedOfferingIds) {
+    const offerings = state.offerings.filter(item => item.section_id === sectionId && item.active)
+      .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" }));
+    if (!sectionId) return '<p class="text-xs text-slate-500">Select a section to manage this student’s subjects.</p>';
+    if (!offerings.length) return '<p class="text-xs text-slate-500">This section has no active subjects yet.</p>';
+    const membership = state.sectionMemberships.some(item => item.profile_id === user.id && item.section_id === sectionId);
+    const checkedIds = membership ? selectedOfferingIds : offerings.map(item => item.id);
+    return `<p class="text-xs font-semibold text-slate-600 sm:col-span-2">Subjects the student takes</p>${offerings.map(offering => `<label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700"><input type="checkbox" name="offeringIds" value="${offering.id}" ${checkedIds.includes(offering.id) ? "checked" : ""}><span>${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</span></label>`).join("")}`;
   }
 
   function field(label, name, value = "", type = "text", required = false) {
@@ -1210,6 +1240,12 @@
       const user = state.users.find(item => item.id === roleSelect.dataset.userRole);
       if (user) setUserRole(user, roleSelect.value);
     }
+    const sectionSelect = event.target.closest("[data-student-section-select]");
+    if (sectionSelect) {
+      const user = state.users.find(item => item.id === sectionSelect.dataset.studentSectionSelect);
+      const choiceContainer = document.getElementById("student-offering-choices");
+      if (user && choiceContainer) choiceContainer.innerHTML = renderStudentOfferingChoices(user, sectionSelect.value, []);
+    }
   });
 
   content.addEventListener("click", async event => {
@@ -1438,10 +1474,6 @@
           state.events = state.events.filter(item => item.id !== id); saveState(); render(); showToast("Calendar item deleted.");
         }
         break;
-      case "toggle-user-form":
-        if (!requireRole(["admin"])) return;
-        state.showUserForm = !state.showUserForm; render();
-        break;
       case "cancel-user-form":
         state.editingUser = null; state.showUserForm = false; render();
         break;
@@ -1617,36 +1649,25 @@
       if (!requireRole(["admin"])) return;
       const submitButton = form.querySelector("button[type='submit'], button:not([type])");
       if (submitButton) submitButton.disabled = true;
-      if (!values.id) {
-        try {
-          const invited = await window.CampusHubStore.inviteUser(values.name.trim(), values.email.trim().toLowerCase());
-          state.showUserForm = false;
-          form.reset();
-          dataReady = false;
-          await bootstrapSession({ id: state.currentUserId });
-          showToast(`Invitation sent to ${invited.email}.`);
-        } catch (error) {
-          console.error("CampusHub could not invite the account.", error);
-          showToast(error.message || "The account invitation could not be sent.", "error");
-        } finally {
-          if (submitButton) submitButton.disabled = false;
-        }
-        return;
-      }
       const existing = state.users.find(entry => entry.id === values.id);
       if (!existing) {
         if (submitButton) submitButton.disabled = false;
         return showToast("Account not found.", "error");
       }
       try {
+        const offeringIds = [...form.querySelectorAll('input[name="offeringIds"]:checked')].map(input => input.value);
+        if (existing.role === "student") {
+          await window.CampusHubStore.setStudentClassAssignments(existing.id, values.sectionId, offeringIds);
+        } else if (existing.role === "professor") {
+          await window.CampusHubStore.setProfessorOfferings(existing.id, offeringIds);
+        }
         await window.CampusHubStore.updateProfile({ ...existing, name: values.name.trim() });
-        existing.name = values.name.trim();
-        state.showUserForm = false; state.editingUser = null;
-        render();
-        showToast("Account updated.");
+        dataReady = false;
+        await bootstrapSession({ id: state.currentUserId });
+        showToast(`${values.name.trim()}'s account and class assignments were updated.`);
       } catch (error) {
-        console.error("CampusHub could not update the account.", error);
-        showToast(error.message || "Account could not be updated.", "error");
+        console.error("CampusHub could not update the account or class assignments.", error);
+        showToast(error.message || "The account or class assignments could not be updated.", "error");
       } finally {
         if (submitButton) submitButton.disabled = false;
       }
