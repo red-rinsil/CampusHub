@@ -790,7 +790,7 @@
       <div class="mt-6 grid gap-6 xl:grid-cols-[1.35fr_.85fr]">
         <section class="surface-card p-5 sm:p-6">
           <div class="flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-indigo-600">Coming up</p><h3 class="mt-1 text-lg font-bold">Exams & deadlines</h3></div>${button("View calendar", "navigate", 'data-target="calendar"', "btn-secondary")}</div>
-          <div class="mt-5 divide-y divide-slate-100">${nextEvents.length ? nextEvents.slice(0, 4).map(event => eventRow(event)).join("") : emptyState("You're all caught up", "No upcoming academic dates are scheduled.")}</div>
+          <div class="mt-5 divide-y divide-slate-100">${nextEvents.length ? nextEvents.slice(0, 3).map(event => eventRow(event)).join("") : emptyState("You're all caught up", "No upcoming academic dates are scheduled.")}</div>
         </section>
         <section class="surface-card flex flex-col p-5 sm:p-6">
           <div class="flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-rose-600">Campus updates</p><h3 class="mt-1 text-lg font-bold">Latest announcements</h3></div>${button("All announcements", "navigate", 'data-target="announcements"', "btn-secondary")}</div>
