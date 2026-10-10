@@ -65,6 +65,12 @@
       unwrap(await client.from("section_officers").select("section_id,profile_id")),
       unwrap(await client.from("offering_enrollments").select("offering_id,profile_id"))
     ]);
+    const offeringProfessors = (await Promise.all(offerings.map(async offering => {
+      const professors = unwrap(await client.rpc("list_offering_professors", {
+        p_offering_id: offering.id
+      }));
+      return professors.map(professor => ({ ...professor, offering_id: offering.id }));
+    }))).flat();
     const studentCounts = await Promise.all(offerings.map(async offering => [
       offering.id,
       unwrap(await client.rpc("active_offering_student_count", { p_offering_id: offering.id }))
@@ -98,6 +104,7 @@
       sections,
       offerings,
       assignments,
+      offeringProfessors,
       sectionOfficers,
       enrollments,
       studentCounts: Object.fromEntries(studentCounts)

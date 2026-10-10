@@ -2,7 +2,7 @@
   "use strict";
 
   const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-  const HEADERS = ["Type", "Subject", "Instructor", "Classroom", "DayOfWeek", "Time", "EndTime", "Date", "Title", "Details"];
+  const HEADERS = ["Type", "Subject", "Professor", "Classroom", "DayOfWeek", "Time", "EndTime", "Date", "Title", "Details"];
   const TYPE_ALIASES = {
     class: "class",
     exam: "Examination",
@@ -110,7 +110,7 @@
       const typeInput = get(values, "type").toLowerCase();
       const type = TYPE_ALIASES[typeInput];
       const subject = get(values, "subject");
-      const instructor = get(values, "instructor");
+      const instructor = get(values, "professor", "instructor");
       const room = get(values, "classroom", "location");
       const dayInput = get(values, "dayofweek", "day");
       const time = get(values, "time", "starttime");
@@ -127,7 +127,7 @@
       if (type === "class") {
         const day = DAYS.find(value => value.toLowerCase() === dayInput.toLowerCase());
         if (!day) rowErrors.push("DayOfWeek must be a full weekday name (Monday–Sunday).");
-        if (!instructor) rowErrors.push("Instructor is required for class schedules.");
+        if (!instructor) rowErrors.push("Professor is required for class schedules.");
         if (!endTime || !/^([01]\d|2[0-3]):[0-5]\d$/.test(endTime)) rowErrors.push('EndTime must use 24-hour HH:MM format.');
         else if (time && /^([01]\d|2[0-3]):[0-5]\d$/.test(time) && endTime <= time) rowErrors.push("EndTime must be later than Time.");
         if (date && !validDate(date)) rowErrors.push('Date must use a real calendar date in YYYY-MM-DD format.');
@@ -136,6 +136,7 @@
         }
         if (!rowErrors.length) records.push({
           kind: "class",
+          line,
           subject,
           instructor,
           room,
@@ -148,6 +149,7 @@
         if (!date || !validDate(date)) rowErrors.push('Exam Date is required and must use YYYY-MM-DD format.');
         if (!rowErrors.length) records.push({
           kind: "exam",
+          line,
           type,
           subject,
           title: title || `${subject} ${type === "Quiz" ? "quiz" : "examination"}`,
@@ -166,7 +168,7 @@
   }
 
   function template() {
-    return `${HEADERS.join(",")}\r\nClass,Data Structures,Dr. Morgan,Engineering 204,Monday,09:00,10:30,,,\r\nExam,Data Structures,Dr. Morgan,Engineering Hall 204,,10:00,,2026-11-12,Midterm examination,Bring your student ID\r\nQuiz,Database Systems,,Technology 108,,13:30,,2026-11-18,Database quiz,Chapters 1-4`;
+    return `${HEADERS.join(",")}\r\nClass,Data Structures,Replace with assigned professor,Engineering 204,Monday,09:00,10:30,,,\r\nExam,Data Structures,,Engineering Hall 204,,10:00,,2026-11-12,Midterm examination,Bring your student ID\r\nQuiz,Database Systems,,Technology 108,,13:30,,2026-11-18,Database quiz,Chapters 1-4`;
   }
 
   window.CampusHubImport = Object.freeze({ parse, template });

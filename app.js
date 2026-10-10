@@ -46,6 +46,7 @@
     sections: [],
     offerings: [],
     assignments: [],
+    offeringProfessors: [],
     sectionOfficers: [],
     enrollments: [],
     studentCounts: {},
@@ -152,8 +153,28 @@
 
   function persistActiveOffering() {
     if (!state.activeOfferingId) return;
-    try { sessionStorage.setItem("campushub-active-offering", state.activeOfferingId); }
+    if (!state.currentUserId) return;
+    try { localStorage.setItem(`campushub-active-offering:${state.currentUserId}`, state.activeOfferingId); }
     catch (error) { console.error("CampusHub could not save the selected class preference.", error); }
+  }
+
+  function currentOfferingProfessors() {
+    return state.offeringProfessors
+      .filter(item => item.offering_id === state.activeOfferingId)
+      .sort((a, b) => a.full_name.localeCompare(b.full_name, undefined, { sensitivity: "base" }));
+  }
+
+  function readActiveOfferingPreference(userId) {
+    try {
+      const saved = localStorage.getItem(`campushub-active-offering:${userId}`);
+      if (saved) return saved;
+      const legacy = sessionStorage.getItem("campushub-active-offering");
+      if (legacy) localStorage.setItem(`campushub-active-offering:${userId}`, legacy);
+      return legacy;
+    } catch (error) {
+      console.error("CampusHub could not read the selected class preference.", error);
+      return null;
+    }
   }
 
   function renderOfferingContext() {
@@ -164,6 +185,7 @@
     const offerings = availableOfferings();
     wrapper.hidden = !account || offerings.length === 0;
     select.replaceChildren();
+    select.value = "";
     offerings.forEach(offering => {
       const section = state.sections.find(item => item.id === offering.section_id);
       const option = document.createElement("option");
@@ -172,6 +194,9 @@
       option.selected = offering.id === state.activeOfferingId;
       select.append(option);
     });
+    if (state.activeOfferingId && offerings.some(offering => offering.id === state.activeOfferingId)) {
+      select.value = state.activeOfferingId;
+    }
     joinButton.hidden = !account || state.activeRole !== "student" || Boolean(state.membership);
   }
 
@@ -267,7 +292,7 @@
       const joinAction = state.activeRole === "student" && !state.membership
         ? button("Join a section", "open-section-join", "", "btn-primary")
         : "";
-      content.innerHTML = `<section class="surface-card mx-auto max-w-2xl p-6 text-center sm:p-8"><p class="text-xs font-bold uppercase tracking-[.16em] text-indigo-600">${state.activeRole === "admin" ? "Class setup" : "Class access"}</p><h2 class="mt-2 text-2xl font-bold">${state.activeRole === "student" && !state.membership ? "Join your section to get started" : "No class offerings are available yet"}</h2><p class="mt-2 text-sm leading-6 text-slate-500">${state.activeRole === "student" && !state.membership ? "Enter the permanent section key provided by your school. Your section's subjects, schedules, exams, and announcements will then appear here." : "Ask an administrator to create class offerings and assign you to them."}</p>${joinAction || (state.activeRole === "admin" ? button("Set up sections", "navigate", 'data-target="management"', "btn-primary") : "")}</section>`;
+      content.innerHTML = `<section class="surface-card mx-auto max-w-2xl p-6 text-center sm:p-8"><p class="text-xs font-bold uppercase tracking-[.16em] text-indigo-600">${state.activeRole === "admin" ? "Class setup" : "Class access"}</p><h2 class="mt-2 text-2xl font-bold">${state.activeRole === "student" && !state.membership ? "Join your section to get started" : "No subjects are available yet"}</h2><p class="mt-2 text-sm leading-6 text-slate-500">${state.activeRole === "student" && !state.membership ? "Enter the permanent section key provided by your school. Your section's subjects, schedules, exams, and announcements will then appear here." : "Ask an administrator to create subjects and assign you to them."}</p>${joinAction || (state.activeRole === "admin" ? button("Set up sections", "navigate", 'data-target="management"', "btn-primary") : "")}</section>`;
       return;
     }
     const pages = {
@@ -326,7 +351,7 @@
     const offering = currentOffering();
     if (!offering) return showToast("Select an assigned class before exporting.", "error");
     const scoped = visibleCollections();
-    const header = ["Type", "Subject", "Instructor", "Classroom", "DayOfWeek", "Time", "EndTime", "Date", "Title", "Details", "ImportedBy", "ImportedAt"];
+    const header = ["Type", "Subject", "Professor", "Classroom", "DayOfWeek", "Time", "EndTime", "Date", "Title", "Details", "ImportedBy", "ImportedAt"];
     const rows = scoped.schedules.map(item => [
       "Class", item.subject, item.instructor, item.room, item.day, item.start, item.end, item.date || "", "", "",
       item.importedByName || item.importedBy || "", item.importedAt || ""
@@ -398,6 +423,9 @@
 
     result.records.forEach(record => {
       if (record.kind === "class") {
+        const professor = currentOfferingProfessors().find(item =>
+          item.full_name.trim().toLocaleLowerCase() === record.instructor.trim().toLocaleLowerCase()
+        );
         state.schedules.push({
           id: generateId("sch"),
           day: record.day,
@@ -405,6 +433,7 @@
           end: record.end,
           subject: record.subject,
           instructor: record.instructor,
+          professorId: professor.profile_id,
           room: record.room,
           offeringId: offering.id,
           sectionId: offering.section_id,
@@ -492,9 +521,18 @@
         return;
       }
       result.records = result.records.filter((record, index) => {
-        if (record.subject.trim().toLocaleLowerCase() === offering.subject.trim().toLocaleLowerCase()) return true;
-        result.errors.push(`Imported record ${index + 1}: subject "${record.subject}" does not match selected class "${offering.subject}".`);
-        return false;
+        let valid = true;
+        if (record.subject.trim().toLocaleLowerCase() !== offering.subject.trim().toLocaleLowerCase()) {
+          result.errors.push(`Imported record ${record.line || index + 1}: subject "${record.subject}" does not match selected subject "${offering.subject}".`);
+          valid = false;
+        }
+        if (record.kind === "class" && !currentOfferingProfessors().some(professor =>
+          professor.full_name.trim().toLocaleLowerCase() === record.instructor.trim().toLocaleLowerCase()
+        )) {
+          result.errors.push(`Imported record ${record.line || index + 1}: professor "${record.instructor}" is not assigned to this subject.`);
+          valid = false;
+        }
+        return valid;
       });
       if (result.records.length > 10000) {
         renderImportPreview({ records: [], errors: ["Files may contain no more than 10,000 valid rows."] });
@@ -588,7 +626,7 @@
       <input type="hidden" name="id" value="${editing ? escapeHtml(item.id) : ""}">
       <div class="grid gap-3 sm:grid-cols-2">
         ${field("Title", "title", item?.title, "text", true)}
-        <label class="block text-xs font-semibold text-slate-600">Class offering<input class="form-control mt-1.5" name="subject" readonly required value="${escapeHtml(subject)}"></label>
+        <label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" readonly required value="${escapeHtml(subject)}"></label>
         <label class="block text-xs font-semibold text-slate-600">Category<select name="category" class="form-control mt-1.5" required>${["General", "Exam Notice", "Class Cancellation", "Deadline"].map(value => `<option ${item?.category === value ? "selected" : ""}>${value}</option>`).join("")}</select></label>
         <label class="flex items-center gap-2 self-end pb-3 text-sm font-medium text-slate-700"><input type="checkbox" name="urgent" class="h-4 w-4 rounded border-slate-300 text-indigo-600" ${item?.urgent ? "checked" : ""}> Mark as urgent</label>
         <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required>${editing ? escapeHtml(item.content) : ""}</textarea></label>
@@ -622,11 +660,11 @@
     const canEdit = canManageSchedules();
     const times = [...new Set(schedules.map(item => item.start))].sort();
     const actions = `<div class="flex flex-wrap gap-2">${canEdit ? button("＋ Add class", "toggle-schedule-form", "", "btn-primary") : ""}${bulkScheduleActions()}</div>`;
-    return `${pageIntro("Plan your week", "Class schedule", "A clear view of your weekly classes, instructors, classrooms, and any recent changes.", actions)}
+    return `    ${pageIntro("Plan your week", "Class schedule", "A clear view of your weekly subjects, assigned professors, classrooms, and recent changes.", actions)}
       ${state.showScheduleForm ? scheduleForm(schedules.find(item => item.id === state.editingSchedule)) : ""}
       <section class="surface-card overflow-hidden"><div class="overflow-x-auto"><table class="w-full min-w-[720px] border-collapse text-left"><thead><tr class="bg-slate-50"><th class="w-32 border-b border-slate-200 px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500">Day</th>${times.map(time => `<th class="border-b border-slate-200 px-4 py-3 text-xs font-bold text-slate-500">${escapeHtml(time)}</th>`).join("")}</tr></thead><tbody>${days.map(day => `<tr class="border-b border-slate-100 last:border-0"><th class="px-4 py-3 text-sm font-bold text-slate-700">${day}</th>${times.map(time => {
         const matches = schedules.filter(item => item.day === day && item.start === time);
-        return `<td class="min-w-44 px-2 py-2 align-top">${matches.map(item => `<div class="rounded-lg border border-indigo-100 bg-indigo-50/70 p-3"><p class="text-xs font-bold text-indigo-800">${escapeHtml(item.subject)}</p><p class="mt-1 text-[11px] text-slate-600">${escapeHtml(item.start)}–${escapeHtml(item.end)}</p><p class="mt-2 text-[11px] text-slate-600">${escapeHtml(item.instructor)}</p><p class="text-[11px] text-slate-500">${escapeHtml(item.room)}</p>${canEdit ? `<div class="mt-2 flex gap-1">${button("Edit", "edit-schedule", `data-id="${item.id}"`)}${button("Delete", "delete-schedule", `data-id="${item.id}"`, "btn-danger")}</div>` : ""}</div>`).join("")}</td>`;
+        return `<td class="min-w-44 px-2 py-2 align-top">${matches.map(item => `<div class="rounded-lg border border-indigo-100 bg-indigo-50/70 p-3"><p class="text-xs font-bold text-indigo-800">${escapeHtml(item.subject)}</p><p class="mt-1 text-[11px] text-slate-600">${escapeHtml(item.start)}–${escapeHtml(item.end)}</p><p class="mt-2 text-[11px] text-slate-600">Professor: ${escapeHtml(item.instructor)}</p><p class="text-[11px] text-slate-500">${escapeHtml(item.room)}</p>${canEdit ? `<div class="mt-2 flex gap-1">${button("Edit", "edit-schedule", `data-id="${item.id}"`)}${button("Delete", "delete-schedule", `data-id="${item.id}"`, "btn-danger")}</div>` : ""}</div>`).join("")}</td>`;
       }).join("")}</tr>`).join("")}</tbody></table></div></section>
       <section class="surface-card mt-6 p-5 sm:p-6"><div class="flex items-center justify-between"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-slate-500">Audit trail</p><h3 class="mt-1 text-lg font-bold">Schedule change history</h3></div><span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">${history.length} updates</span></div>
         <div class="mt-4 divide-y divide-slate-100">${history.length ? history.slice(0, 8).map(item => `<div class="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between"><p class="text-sm font-medium text-slate-700">${escapeHtml(item.text)}</p><p class="text-xs text-slate-500">${escapeHtml(item.actor)} · ${formatDate(item.at, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p></div>`).join("") : emptyState("No changes yet", "Schedule updates will be recorded here.")}</div>
@@ -655,10 +693,14 @@
 
   function scheduleForm(item = null) {
     const subject = item?.subject || currentOffering()?.subject || "";
+    const professors = currentOfferingProfessors();
+    const selectedProfessorId = item?.professorId || professors.find(professor =>
+      professor.full_name === item?.instructor
+    )?.profile_id || "";
     return `<form id="schedule-form" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">${item ? "Edit class" : "Add a class"}</h3>${button("Cancel", "cancel-schedule-form")}</div>
       <input type="hidden" name="id" value="${item ? escapeHtml(item.id) : ""}"><div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      <label class="block text-xs font-semibold text-slate-600">Class offering<input class="form-control mt-1.5" name="subject" readonly required value="${escapeHtml(subject)}"></label>
-      <label class="block text-xs font-semibold text-slate-600">Instructor<input class="form-control mt-1.5" name="instructor" required value="${item ? escapeHtml(item.instructor) : ""}"></label>
+      <label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" readonly required value="${escapeHtml(subject)}"></label>
+      <label class="block text-xs font-semibold text-slate-600">Professor<select class="form-control mt-1.5" name="professorId" required ${professors.length ? "" : "disabled"}><option value="">${professors.length ? "Select an assigned professor" : "Assign a professor to this subject first"}</option>${professors.map(professor => `<option value="${escapeHtml(professor.profile_id)}" ${professor.profile_id === selectedProfessorId ? "selected" : ""}>${escapeHtml(professor.full_name)}</option>`).join("")}</select></label>
       <label class="block text-xs font-semibold text-slate-600">Classroom<input class="form-control mt-1.5" name="room" required value="${item ? escapeHtml(item.room) : ""}"></label>
       <label class="block text-xs font-semibold text-slate-600">Day<select name="day" class="form-control mt-1.5">${["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map(day => `<option ${item?.day === day ? "selected" : ""}>${day}</option>`).join("")}</select></label>
       <label class="block text-xs font-semibold text-slate-600">Start time<input class="form-control mt-1.5" type="time" name="start" required value="${item ? escapeHtml(item.start) : "09:00"}"></label>
@@ -685,7 +727,7 @@
     return `<form id="${formId}" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">${item ? `Edit ${formTitle}` : `Add ${formTitle}`}</h3>${button("Cancel", examOnly ? "cancel-exam-form" : "cancel-event-form")}</div>
       <input type="hidden" name="id" value="${item ? escapeHtml(item.id) : ""}"><div class="grid gap-3 sm:grid-cols-2">
       <label class="block text-xs font-semibold text-slate-600">Title<input class="form-control mt-1.5" name="title" required value="${item ? escapeHtml(item.title) : ""}"></label>
-      <label class="block text-xs font-semibold text-slate-600">Class offering<input class="form-control mt-1.5" name="subject" readonly required value="${escapeHtml(subject)}"></label>
+      <label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" readonly required value="${escapeHtml(subject)}"></label>
       <label class="block text-xs font-semibold text-slate-600">Type<select name="type" class="form-control mt-1.5">${eventTypes.map(type => `<option ${item?.type === type ? "selected" : ""}>${type}</option>`).join("")}</select></label>
       <label class="block text-xs font-semibold text-slate-600">Date and time<input class="form-control mt-1.5" type="datetime-local" name="date" required value="${item ? escapeHtml(new Date(new Date(item.date).getTime() - new Date(item.date).getTimezoneOffset() * 60000).toISOString().slice(0, 16)) : ""}"></label>
       <label class="block text-xs font-semibold text-slate-600">Location<input class="form-control mt-1.5" name="location" required value="${item ? escapeHtml(item.location) : ""}"></label>
@@ -713,8 +755,8 @@
     const activeUsers = state.users.filter(user => user.active);
     const sections = [...state.sections].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
     return `<section class="surface-card mb-5 p-4 sm:p-5">
-      <div><p class="text-xs font-bold uppercase tracking-wider text-indigo-600">Class structure</p><h3 class="mt-1 text-lg font-bold">Sections, blocks & class offerings</h3><p class="mt-1 text-xs leading-5 text-slate-500">Assign one class officer to each section. Professors are assigned per subject offering; students can be enrolled in only the subjects they take.</p></div>
-      <form id="section-form" class="mt-4 flex flex-wrap items-end gap-3"><label class="block min-w-56 flex-1 text-xs font-semibold text-slate-600">New section/block name<input class="form-control mt-1.5" name="name" maxlength="80" placeholder="BSIT 2A" required></label><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white">Create section & key</button></form>
+      <div><p class="text-xs font-bold uppercase tracking-wider text-indigo-600">Class structure</p><h3 class="mt-1 text-lg font-bold">Sections & subjects</h3><p class="mt-1 text-xs leading-5 text-slate-500">Assign one class officer to each section. Professors are assigned per subject; students can be enrolled only in the subjects they take.</p></div>
+      <form id="section-form" class="mt-4 flex flex-wrap items-end gap-3"><label class="block min-w-56 flex-1 text-xs font-semibold text-slate-600">New section name<input class="form-control mt-1.5" name="name" maxlength="80" placeholder="BSIT 2A" required></label><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white">Create section & key</button></form>
       <div class="mt-4 space-y-3">${sections.length ? sections.map(section => {
         const offerings = state.offerings.filter(item => item.section_id === section.id)
           .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" }));
@@ -726,22 +768,22 @@
           .filter(Boolean);
         const officerOptions = activeUsers.filter(user => user.role === "officer");
         return `<details class="rounded-xl border border-slate-200 p-4"><summary class="cursor-pointer font-bold">${escapeHtml(section.name)}<span class="ml-2 text-xs font-normal text-slate-500">${offerings.length} subject(s) · ${sectionStudents.length} active student(s) · ${section.active ? "Active" : "Archived"}</span></summary><div class="mt-3"><div class="mb-3 flex flex-wrap justify-end gap-2">${section.active ? button("Rotate join key", "rotate-section-key", `data-id="${section.id}"`) : ""}${button(section.active ? "Archive section" : "Restore section", "toggle-section-active", `data-id="${section.id}"`, section.active ? "btn-danger" : "btn-secondary")}${button("Delete permanently", "delete-section", `data-id="${section.id}"`, "btn-danger")}</div>
-          <form id="section-edit-form-${section.id}" data-section-id="${section.id}" class="mt-3 flex flex-wrap items-end gap-2"><label class="min-w-48 flex-1 text-xs font-semibold text-slate-600">Edit section / block name<input class="form-control mt-1 py-2 text-sm" name="name" maxlength="80" required value="${escapeHtml(section.name)}"></label><button class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Save name</button></form>
-          <form id="section-officer-form-${section.id}" data-section-id="${section.id}" class="mt-4 flex flex-wrap items-center gap-2"><label class="min-w-48 flex-1 text-xs font-semibold text-slate-600">Section class officer<select class="form-control mt-1 py-2 text-xs" name="profileId" required><option value="">Select one class officer</option>${officerOptions.map(person => `<option value="${person.id}" ${person.id === officer?.id ? "selected" : ""}>${escapeHtml(person.name)} (${escapeHtml(person.email)})</option>`).join("")}</select></label><button class="mt-4 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Assign / replace officer</button>${officer ? `${button("Remove officer", "clear-section-officer", `data-id="${section.id}"`, "btn-danger")}<span class="text-xs text-slate-500">${officer.active ? "" : "Assigned account is inactive"}</span>` : ""}</form>
-          <form id="offering-form-${section.id}" data-section-id="${section.id}" class="mt-4 grid gap-2 sm:grid-cols-[1fr_12rem_auto]"><label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" maxlength="120" placeholder="Data Structures" required></label><label class="block text-xs font-semibold text-slate-600">Course code (optional)<input class="form-control mt-1.5" name="courseCode" maxlength="32" placeholder="CS201"></label><button class="self-end rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" ${section.active ? "" : "disabled"}>Add offering</button></form>
+          <form id="section-edit-form-${section.id}" data-section-id="${section.id}" class="mt-3 flex flex-wrap items-end gap-2"><label class="min-w-48 flex-1 text-xs font-semibold text-slate-600">Edit section name<input class="form-control mt-1 py-2 text-sm" name="name" maxlength="80" required value="${escapeHtml(section.name)}"></label><button class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Save name</button></form>
+          <form id="section-officer-form-${section.id}" data-section-id="${section.id}" class="mt-4 flex flex-wrap items-center gap-2"><label class="min-w-48 flex-1 text-xs font-semibold text-slate-600">Class officer<select class="form-control mt-1 py-2 text-xs" name="profileId" required><option value="">Select one class officer</option>${officerOptions.map(person => `<option value="${person.id}" ${person.id === officer?.id ? "selected" : ""}>${escapeHtml(person.name)} (${escapeHtml(person.email)})</option>`).join("")}</select></label><button class="mt-4 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Assign / replace officer</button>${officer ? `${button("Remove officer", "clear-section-officer", `data-id="${section.id}"`, "btn-danger")}<span class="text-xs text-slate-500">${officer.active ? "" : "Assigned account is inactive"}</span>` : ""}</form>
+          <form id="offering-form-${section.id}" data-section-id="${section.id}" class="mt-4 grid gap-2 sm:grid-cols-[1fr_12rem_auto]"><label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1.5" name="subject" maxlength="120" placeholder="Data Structures" required></label><label class="block text-xs font-semibold text-slate-600">Course code (optional)<input class="form-control mt-1.5" name="courseCode" maxlength="32" placeholder="CS201"></label><button class="self-end rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" ${section.active ? "" : "disabled"}>Add subject</button></form>
           <div class="mt-3 space-y-2">${offerings.map(offering => {
             const assigned = state.assignments.filter(item => item.offering_id === offering.id && item.staff_role === "professor");
             const enrolledIds = new Set(state.enrollments.filter(item => item.offering_id === offering.id).map(item => item.profile_id));
             const candidates = sectionStudents.filter(person => !enrolledIds.has(person.id));
             const enrolled = sectionStudents.filter(person => enrolledIds.has(person.id));
-            return `<details class="rounded-lg bg-slate-50 p-3"><summary class="cursor-pointer text-sm font-semibold text-slate-700">${escapeHtml(offering.subject)}${offering.course_code ? ` · ${escapeHtml(offering.course_code)}` : ""}<span class="ml-2 text-xs font-normal text-slate-500">${offering.active ? "Active" : "Archived"}</span></summary><div class="mt-2"><div class="flex flex-wrap justify-end gap-2">${button(offering.active ? "Archive class" : "Restore class", "toggle-offering-active", `data-id="${offering.id}"`, offering.active ? "btn-danger" : "btn-secondary")}${button("Delete permanently", "delete-offering", `data-id="${offering.id}"`, "btn-danger")}</div>
-              <form id="offering-edit-form-${offering.id}" data-offering-id="${offering.id}" class="mt-2 grid gap-2 sm:grid-cols-[1fr_12rem_auto]"><label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1 py-2 text-sm" name="subject" maxlength="120" required value="${escapeHtml(offering.subject)}"></label><label class="block text-xs font-semibold text-slate-600">Course code<input class="form-control mt-1 py-2 text-sm" name="courseCode" maxlength="32" value="${escapeHtml(offering.course_code || "")}"></label><button class="self-end rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Save class</button></form>
+            return `<details class="rounded-lg bg-slate-50 p-3"><summary class="cursor-pointer text-sm font-semibold text-slate-700">${escapeHtml(offering.subject)}${offering.course_code ? ` · ${escapeHtml(offering.course_code)}` : ""}<span class="ml-2 text-xs font-normal text-slate-500">${offering.active ? "Active" : "Archived"}</span></summary><div class="mt-2"><div class="flex flex-wrap justify-end gap-2">${button(offering.active ? "Archive subject" : "Restore subject", "toggle-offering-active", `data-id="${offering.id}"`, offering.active ? "btn-danger" : "btn-secondary")}${button("Delete permanently", "delete-offering", `data-id="${offering.id}"`, "btn-danger")}</div>
+              <form id="offering-edit-form-${offering.id}" data-offering-id="${offering.id}" class="mt-2 grid gap-2 sm:grid-cols-[1fr_12rem_auto]"><label class="block text-xs font-semibold text-slate-600">Subject<input class="form-control mt-1 py-2 text-sm" name="subject" maxlength="120" required value="${escapeHtml(offering.subject)}"></label><label class="block text-xs font-semibold text-slate-600">Course code<input class="form-control mt-1 py-2 text-sm" name="courseCode" maxlength="32" value="${escapeHtml(offering.course_code || "")}"></label><button class="self-end rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Save subject</button></form>
               <form id="staff-assignment-form-${offering.id}-professor" data-offering-id="${offering.id}" data-staff-role="professor" class="mt-2 flex flex-wrap items-center gap-2"><span class="w-24 text-xs font-medium text-slate-600">Professor</span><select class="form-control min-w-48 flex-1 py-2 text-xs" name="profileId" required><option value="">Assign professor</option>${activeUsers.filter(person => person.role === "professor").map(person => `<option value="${person.id}">${escapeHtml(person.name)} (${escapeHtml(person.email)})</option>`).join("")}</select><button class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Assign</button>${assigned.map(item => { const person = activeUsers.find(user => user.id === item.profile_id); return person ? `<span class="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-xs text-slate-600">${escapeHtml(person.name)}${button("×", "remove-offering-staff", `data-offering-id="${offering.id}" data-profile-id="${person.id}" data-role="professor"`, "btn-danger")}</span>` : ""; }).join("")}</form>
               <div class="mt-3 border-t border-slate-200 pt-3"><p class="text-xs font-semibold text-slate-700">Enrolled students (${enrolled.length})</p><form id="enrollment-form-${offering.id}" data-offering-id="${offering.id}" class="mt-2 flex flex-wrap items-center gap-2"><select class="form-control min-w-48 flex-1 py-2 text-xs" name="profileId" ${candidates.length && offering.active ? "required" : "disabled"}><option value="">${offering.active ? (candidates.length ? "Add a student taking this subject" : "All section students are enrolled") : "Restore this class to edit enrollments"}</option>${candidates.map(person => `<option value="${person.id}">${escapeHtml(person.name)} (${escapeHtml(person.email)})</option>`).join("")}</select><button class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700" ${candidates.length && offering.active ? "" : "disabled"}>Enroll student</button></form><div class="mt-2 flex flex-wrap gap-2">${enrolled.map(person => `<span class="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1 pl-2.5 pr-1 text-xs text-slate-600">${escapeHtml(person.name)}${button("×", "remove-offering-student", `data-offering-id="${offering.id}" data-profile-id="${person.id}" ${offering.active ? "" : "disabled"}`, "btn-danger")}</span>`).join("") || '<span class="text-xs text-slate-500">No students enrolled in this subject.</span>'}</div></div></div></details>`;
           }).join("") || '<p class="mt-3 text-xs text-slate-500">No offerings created for this section yet.</p>'}</div>
         </div></details>`;
-      }).join("") : emptyState("No sections created", "Create a section/block, then add its subject offerings and assign staff.")}</div>
-      <div id="section-key-container" class="mt-4 hidden rounded-xl border border-emerald-200 bg-emerald-50 p-4"><p class="text-xs font-semibold text-emerald-800">Share this reusable section key with students in this block</p><input id="section-key-output" class="form-control mt-2 font-mono" readonly></div>
+      }).join("") : emptyState("No sections created", "Create a section, then add its subjects and assign staff.")}</div>
+      <div id="section-key-container" class="mt-4 hidden rounded-xl border border-emerald-200 bg-emerald-50 p-4"><p class="text-xs font-semibold text-emerald-800">Share this reusable section key with students in this section</p><input id="section-key-output" class="form-control mt-2 font-mono" readonly></div>
     </section>`;
   }
 
@@ -797,7 +839,7 @@
     return `<form id="user-form"><h2 id="user-edit-heading" class="mb-1 text-xl font-bold">Edit account</h2><p class="mb-4 text-sm text-slate-500">Update account details and class assignments.</p>
       <input type="hidden" name="id" value="${escapeHtml(user.id)}"><label class="block text-xs font-semibold text-slate-600">Full name<input class="form-control mt-1.5" name="name" maxlength="100" required value="${escapeHtml(user.name)}"></label>
       <p class="mt-3 text-xs text-slate-500">Email and password are managed by Supabase Authentication.</p>
-      ${user.role === "student" ? `<div class="mt-4"><label class="block text-xs font-semibold text-slate-600">Section / block<select class="form-control mt-1.5 max-w-xl" name="sectionId" data-student-section-select="${escapeHtml(user.id)}"><option value="">Not assigned to a section</option>${activeSections.map(section => `<option value="${section.id}" ${membership?.section_id === section.id ? "selected" : ""}>${escapeHtml(section.name)}${section.active ? "" : " (Archived)"}</option>`).join("")}</select></label><div id="student-offering-choices" class="mt-3 grid gap-2 sm:grid-cols-2">${renderStudentOfferingChoices(user, membership?.section_id || "", selectedOfferingIds)}</div></div>` : ""}
+      ${user.role === "student" ? `<div class="mt-4"><label class="block text-xs font-semibold text-slate-600">Section<select class="form-control mt-1.5 max-w-xl" name="sectionId" data-student-section-select="${escapeHtml(user.id)}"><option value="">Not assigned to a section</option>${activeSections.map(section => `<option value="${section.id}" ${membership?.section_id === section.id ? "selected" : ""}>${escapeHtml(section.name)}${section.active ? "" : " (Archived)"}</option>`).join("")}</select></label><div id="student-offering-choices" class="mt-3 grid gap-2 sm:grid-cols-2">${renderStudentOfferingChoices(user, membership?.section_id || "", selectedOfferingIds)}</div></div>` : ""}
       ${user.role === "professor" ? `<fieldset class="mt-4"><legend class="text-xs font-semibold text-slate-600">Assigned subjects</legend><div class="mt-2 space-y-2">${[...new Set(activeOfferings.map(offering => offering.section_id))].map(sectionId => {
         const sectionOfferings = activeOfferings.filter(offering => offering.section_id === sectionId);
         const sectionName = state.sections.find(item => item.id === sectionId)?.name || "Section";
@@ -931,12 +973,11 @@
       state.sections = data.sections;
       state.offerings = data.offerings;
       state.assignments = data.assignments;
+      state.offeringProfessors = data.offeringProfessors;
       state.sectionOfficers = data.sectionOfficers;
       state.enrollments = data.enrollments;
       state.studentCounts = data.studentCounts;
-      let preferenceOffering = null;
-      try { preferenceOffering = sessionStorage.getItem("campushub-active-offering"); }
-      catch (error) { console.error("CampusHub could not read the selected class preference.", error); }
+      const preferenceOffering = readActiveOfferingPreference(data.user.id);
       const activeOfferings = data.offerings.filter(offering => offering.active &&
         data.sections.some(section => section.id === offering.section_id && section.active));
       state.activeOfferingId = activeOfferings.some(item => item.id === state.activeOfferingId)
@@ -964,14 +1005,17 @@
               state.sections = latest.sections;
               state.offerings = latest.offerings;
               state.assignments = latest.assignments;
+              state.offeringProfessors = latest.offeringProfessors;
               state.sectionOfficers = latest.sectionOfficers;
               state.enrollments = latest.enrollments;
               state.studentCounts = latest.studentCounts;
               const activeOfferings = latest.offerings.filter(offering => offering.active &&
                 latest.sections.some(section => section.id === offering.section_id && section.active));
               if (!activeOfferings.some(item => item.id === state.activeOfferingId)) {
-                state.activeOfferingId = activeOfferings[0]?.id || null;
+                const preferredOffering = readActiveOfferingPreference(authUser.id);
+                state.activeOfferingId = activeOfferings.find(item => item.id === preferredOffering)?.id || activeOfferings[0]?.id || null;
               }
+              persistActiveOffering();
               if (state.activeRole === "admin") {
                 state.users = [...latest.users.filter(user => user.id !== latest.user.id), latest.user];
               }
@@ -1365,10 +1409,10 @@
         try {
           await window.CampusHubStore.setOfferingActive(id, !offering.active);
           await refreshSharedData();
-          showToast(`Class offering ${offering.active ? "archived" : "restored"}.`);
+          showToast(`Subject ${offering.active ? "archived" : "restored"}.`);
         } catch (error) {
           console.error("CampusHub could not update class offering status.", error);
-          showToast(error.message || "Class offering status could not be updated.", "error");
+          showToast(error.message || "Subject status could not be updated.", "error");
         }
         break;
       }
@@ -1379,7 +1423,7 @@
         try {
           await window.CampusHubStore.deleteOffering(id);
           await refreshSharedData();
-          showToast("Class offering and its linked academic data were permanently deleted.");
+          showToast("Subject and its linked academic data were permanently deleted.");
         } catch (error) {
           console.error("CampusHub could not permanently delete the class offering.", error);
           showToast(error.message || "The class offering could not be deleted.", "error");
@@ -1580,10 +1624,10 @@
       try {
         await window.CampusHubStore.createOffering(form.dataset.sectionId, values.subject.trim(), values.courseCode.trim());
         await refreshSharedData();
-        showToast(`${values.subject.trim()} was added as a class offering.`);
+        showToast(`${values.subject.trim()} was added to the section.`);
       } catch (error) {
         console.error("CampusHub could not create the class offering.", error);
-        showToast(error.message || "Class offering could not be created.", "error");
+        showToast(error.message || "Subject could not be created.", "error");
       }
     } else if (sectionEditForm) {
       if (!requireRole(["admin"])) return;
@@ -1600,19 +1644,19 @@
       try {
         await window.CampusHubStore.updateOffering(form.dataset.offeringId, values.subject.trim(), values.courseCode.trim());
         await refreshSharedData();
-        showToast("Class offering updated.");
+        showToast("Subject updated.");
       } catch (error) {
         console.error("CampusHub could not update the class offering.", error);
-        showToast(error.message || "Class offering could not be updated. Check for another offering with the same subject and course code.", "error");
+        showToast(error.message || "Subject could not be updated. Check for another subject with the same course code.", "error");
       }
     } else if (staffForm) {
       if (!requireRole(["admin"])) return;
       try {
         await window.CampusHubStore.assignStaff(form.dataset.offeringId, values.profileId, form.dataset.staffRole, true);
         await refreshSharedData();
-        showToast(`${roles[form.dataset.staffRole].label} assigned to the class offering.`);
+        showToast(`${roles[form.dataset.staffRole].label} assigned to the subject.`);
       } catch (error) {
-        console.error("CampusHub could not assign staff to the class offering.", error);
+        console.error("CampusHub could not assign staff to the subject.", error);
         showToast(error.message || "Staff assignment could not be completed.", "error");
       }
     } else if (officerForm) {
@@ -1653,16 +1697,18 @@
     } else if (formId === "schedule-form") {
       if (!requireRole(["professor", "officer", "admin"])) return;
       if (values.start >= values.end) return showToast("End time must be later than start time.", "error");
+      const professor = currentOfferingProfessors().find(item => item.profile_id === values.professorId);
+      if (!professor) return showToast("Choose a professor assigned to this subject.", "error");
       const previous = values.id ? state.schedules.find(item => item.id === values.id) : null;
       if (previous) {
         if (previous.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this schedule.", "error");
-        Object.assign(previous, { day: values.day, start: values.start, end: values.end, subject: values.subject.trim(), instructor: values.instructor.trim(), room: values.room.trim() });
+        Object.assign(previous, { day: values.day, start: values.start, end: values.end, subject: values.subject.trim(), instructor: professor.full_name, professorId: professor.profile_id, room: values.room.trim() });
         recordScheduleChange(`${previous.subject} updated: ${previous.day}, ${previous.start}–${previous.end}, ${previous.room}`);
         showToast("Timetable updated.");
       } else {
         const offering = currentOffering();
         if (!offering) return showToast("Select an assigned class before editing the timetable.", "error");
-        const created = { id: generateId("sch"), day: values.day, start: values.start, end: values.end, subject: values.subject.trim(), instructor: values.instructor.trim(), room: values.room.trim(), offeringId: offering.id, sectionId: offering.section_id };
+        const created = { id: generateId("sch"), day: values.day, start: values.start, end: values.end, subject: values.subject.trim(), instructor: professor.full_name, professorId: professor.profile_id, room: values.room.trim(), offeringId: offering.id, sectionId: offering.section_id };
         state.schedules.push(created); recordScheduleChange(`${created.subject} added to ${created.day}, ${created.start}–${created.end}`);
         showToast("Class added to timetable.");
       }
