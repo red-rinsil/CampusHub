@@ -174,6 +174,26 @@
       (!item.sectionId && state.offerings.some(offering => offering.id === item.offeringId && offering.section_id === section.id)));
   }
 
+  function studentSectionOfferings(section) {
+    if (state.activeRole !== "student" || !section) return [];
+    const enrolledOfferingIds = new Set(state.enrollments
+      .filter(enrollment => enrollment.profile_id === state.currentUserId)
+      .map(enrollment => enrollment.offering_id));
+    return availableOfferings().filter(offering =>
+      offering.section_id === section.id && enrolledOfferingIds.has(offering.id)
+    );
+  }
+
+  function sectionRecordsForCurrentRole(items, section) {
+    const records = sectionScoped(items, section);
+    if (["admin", "professor"].includes(state.activeRole)) return records;
+    if (state.activeRole === "student") {
+      const enrolledOfferingIds = new Set(studentSectionOfferings(section).map(offering => offering.id));
+      return records.filter(item => enrolledOfferingIds.has(item.offeringId));
+    }
+    return offeringScoped(records);
+  }
+
   function offeringSelectionFields(selectedOfferingId, fixedSectionId = null) {
     const offerings = availableOfferings().filter(item => !fixedSectionId || item.section_id === fixedSectionId).sort((a, b) => {
       const sectionA = state.sections.find(section => section.id === a.section_id)?.name || "";
@@ -699,10 +719,8 @@
 
   function renderTimetable() {
     const section = selectedViewSection("timetable");
-    const sectionSchedules = sectionScoped(state.schedules, section);
-    const schedules = ["admin", "professor"].includes(state.activeRole) ? sectionSchedules : offeringScoped(sectionSchedules);
-    const sectionHistory = sectionScoped(state.scheduleHistory, section);
-    const history = ["admin", "professor"].includes(state.activeRole) ? sectionHistory : offeringScoped(sectionHistory);
+    const schedules = sectionRecordsForCurrentRole(state.schedules, section);
+    const history = sectionRecordsForCurrentRole(state.scheduleHistory, section);
     const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const canEdit = canManageSchedules();
     const times = [...new Set(schedules.map(item => item.start))].sort();
@@ -727,8 +745,7 @@
 
   function renderExamTimetable() {
     const section = selectedViewSection("exams");
-    const sectionEvents = sectionScoped(state.events, section);
-    const scopedEvents = ["admin", "professor"].includes(state.activeRole) ? sectionEvents : offeringScoped(sectionEvents);
+    const scopedEvents = sectionRecordsForCurrentRole(state.events, section);
     const exams = scopedEvents.filter(event => ["Examination", "Quiz"].includes(event.type)).sort((a, b) => new Date(a.date) - new Date(b.date));
     const canEdit = canManageEvents();
     const actions = `<div class="flex flex-wrap items-end gap-2">${viewSectionSelector("exams", Boolean(state.editingExam))}${canEdit ? button("＋ Add exam", "toggle-exam-form", "", "btn-primary") : ""}${bulkScheduleActions()}</div>`;
