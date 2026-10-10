@@ -158,6 +158,15 @@
       (state.activeRole === "officer" && officerHasOffering(state.activeOfferingId));
   }
 
+  function officerSectionIds() {
+    if (state.activeRole !== "officer") return new Set();
+    const sectionIds = new Set(state.sectionOfficers
+      .filter(entry => entry.profile_id === state.currentUserId)
+      .map(entry => entry.section_id));
+    if (state.membership?.section_id) sectionIds.add(state.membership.section_id);
+    return sectionIds;
+  }
+
   function officerHasOffering(offeringId) {
     return state.activeRole === "officer" && state.assignments.some(assignment =>
       assignment.profile_id === state.currentUserId &&
@@ -167,7 +176,23 @@
   }
 
   function canManageEvents() {
+    return state.activeRole === "admin" ||
+      (state.activeRole === "professor" && professorAssignedOfferings().length > 0) ||
+      (state.activeRole === "officer" && announcementTargetOfferings().length > 0);
+  }
+
+  function canManageExams() {
     return ["professor", "admin"].includes(state.activeRole);
+  }
+
+  function canManageEventItem(item) {
+    if (!item) return false;
+    if (state.activeRole === "admin") return true;
+    if (state.activeRole === "professor") {
+      return professorAssignedOfferings().some(offering => offering.id === item.offeringId);
+    }
+    return state.activeRole === "officer" &&
+      announcementTargetOfferings().some(offering => offering.id === item.offeringId);
   }
 
   function canManageAcrossOfferings() {
@@ -181,9 +206,12 @@
 
   function sectionsForViewing() {
     const accessibleSectionIds = new Set(availableOfferings().map(offering => offering.section_id));
+    const officerSections = officerSectionIds();
     const sections = state.activeRole === "admin"
       ? state.sections.filter(section => section.active)
-      : state.sections.filter(section => accessibleSectionIds.has(section.id) && section.active);
+      : state.activeRole === "officer"
+        ? state.sections.filter(section => section.active && officerSections.has(section.id))
+        : state.sections.filter(section => accessibleSectionIds.has(section.id) && section.active);
     return sections.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
   }
 
@@ -191,7 +219,7 @@
     const sectionId = tab === "exams"
       ? state.examViewSectionId
       : tab === "calendar" ? state.calendarViewSectionId : state.scheduleViewSectionId;
-    if (tab === "calendar" && sectionId === "all") return null;
+    if (tab === "calendar" && sectionId === "all" && ["admin", "professor"].includes(state.activeRole)) return null;
     const sections = sectionsForViewing();
     return sections.find(section => section.id === sectionId) ||
       sections.find(section => section.id === currentOffering()?.section_id) ||
@@ -231,6 +259,7 @@
   function sectionRecordsForCurrentRole(items, section) {
     const records = sectionScoped(items, section);
     if (["admin", "professor"].includes(state.activeRole)) return records;
+    if (state.activeRole === "officer") return records;
     if (state.activeRole === "student") {
       const enrolledOfferingIds = new Set(studentSectionOfferings(section).map(offering => offering.id));
       return records.filter(item => enrolledOfferingIds.has(item.offeringId));
@@ -342,6 +371,15 @@
         scheduleHistory: sectionRecordsForCurrentRole(state.scheduleHistory, section)
       };
     }
+    if (state.activeRole === "officer") {
+      const section = selectedViewSection("timetable");
+      return {
+        announcements: announcementScopeForCurrentRole(),
+        schedules: sectionRecordsForCurrentRole(state.schedules, section),
+        events: sectionRecordsForCurrentRole(state.events, section),
+        scheduleHistory: sectionRecordsForCurrentRole(state.scheduleHistory, section)
+      };
+    }
     return {
       announcements: announcementScopeForCurrentRole(),
       schedules: offeringScoped(state.schedules),
@@ -352,8 +390,10 @@
 
   function dashboardEventsForCurrentRole() {
     let offerings;
-    if (state.activeRole === "admin" || state.activeRole === "officer") {
+    if (state.activeRole === "admin") {
       offerings = availableOfferings();
+    } else if (state.activeRole === "officer") {
+      offerings = announcementTargetOfferings();
     } else if (state.activeRole === "professor") {
       offerings = professorAssignedOfferings();
     } else {
@@ -411,8 +451,7 @@
   function canManageAnnouncementItem(item) {
     return (state.activeRole === "admin" ||
       (item.authorRole === state.activeRole &&
-        announcementTargetOfferings().some(offering => offering.id === item.offeringId))) &&
-      (state.activeRole !== "officer" || officerHasOffering(item.offeringId));
+        announcementTargetOfferings().some(offering => offering.id === item.offeringId)));
   }
 
   function activeUserId() {
@@ -1024,7 +1063,10 @@
   function announcementTargetOfferings() {
     if (state.activeRole === "admin") return availableOfferings();
     if (state.activeRole === "professor") return professorAssignedOfferings();
-    if (state.activeRole === "officer") return availableOfferings().filter(offering => officerHasOffering(offering.id));
+    if (state.activeRole === "officer") {
+      const sectionIds = officerSectionIds();
+      return availableOfferings().filter(offering => sectionIds.has(offering.section_id));
+    }
     return [];
   }
 
@@ -1240,7 +1282,8 @@
           const professorNames = assignedProfessors.length
             ? assignedProfessors.join(", ")
             : item.offeringId ? "No professor assigned" : item.instructor || "No professor assigned";
-          return `<div class="rounded-lg border border-indigo-100 bg-indigo-50/70 p-3"><p class="text-xs font-bold text-indigo-800">${escapeHtml(item.subject)}</p><p class="mt-1 text-[11px] text-slate-600">${escapeHtml(item.start)}–${escapeHtml(item.end)}</p><p class="mt-2 text-[11px] text-slate-600">Professor: ${escapeHtml(professorNames)}</p><p class="text-[11px] text-slate-500">${escapeHtml(item.room)}</p>${canEdit ? `<div class="mt-2 flex gap-1">${button("Edit", "edit-schedule", `data-id="${item.id}"`)}${button("Delete", "delete-schedule", `data-id="${item.id}"`, "btn-danger")}</div>` : ""}</div>`;
+          const canEditItem = state.activeRole !== "officer" || officerHasOffering(item.offeringId);
+          return `<div class="rounded-lg border border-indigo-100 bg-indigo-50/70 p-3"><p class="text-xs font-bold text-indigo-800">${escapeHtml(item.subject)}</p><p class="mt-1 text-[11px] text-slate-600">${escapeHtml(item.start)}–${escapeHtml(item.end)}</p><p class="mt-2 text-[11px] text-slate-600">Professor: ${escapeHtml(professorNames)}</p><p class="text-[11px] text-slate-500">${escapeHtml(item.room)}</p>${canEdit && canEditItem ? `<div class="mt-2 flex gap-1">${button("Edit", "edit-schedule", `data-id="${item.id}"`)}${button("Delete", "delete-schedule", `data-id="${item.id}"`, "btn-danger")}</div>` : ""}</div>`;
         }).join("")}</td>`;
       }).join("")}</tr>`).join("")}</tbody></table></div></section>` : `<section class="surface-card p-5">${emptyState("No classes scheduled", section ? `There are no class entries for ${escapeHtml(section.name)} yet.` : "Select an accessible section to view its class schedule.")}</section>`}
       <section class="surface-card mt-6 p-5 sm:p-6"><div class="flex items-center justify-between"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-slate-500">Audit trail</p><h3 class="mt-1 text-lg font-bold">Schedule change history</h3></div><span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">${history.length} updates</span></div>
@@ -1252,7 +1295,7 @@
     const section = selectedViewSection("exams");
     const scopedEvents = sectionRecordsForCurrentRole(state.events, section);
     const exams = scopedEvents.filter(event => event.type === "Examination").sort((a, b) => new Date(a.date) - new Date(b.date));
-    const canEdit = canManageEvents();
+    const canEdit = canManageExams();
     const actions = `<div class="flex flex-wrap items-end gap-2">${viewSectionSelector("exams", Boolean(state.editingExam))}${canEdit ? `${button("＋ Add exam", "toggle-exam-form", "", "btn-primary")}${examImportExportActions()}` : ""}</div>`;
     const preferredOfferingId = state.offerings.find(offering => offering.section_id === section?.id && offering.active)?.id || state.activeOfferingId;
     return `${pageIntro("Assessment planning", "Exam timetable", "Check the date, start time, subject, and room for each examination. Unlike the weekly class schedule, every exam shows its full calendar date.", actions)}
@@ -1295,7 +1338,7 @@
     return `${pageIntro("Never miss a date", "Academic calendar", "Examinations, quizzes, deadlines, and special class in one place.", actions)}
       ${state.showEventForm ? eventForm(scopedEvents.find(item => item.id === state.editingEvent), false, selectedOffering, allSections ? null : section?.id) : ""}
       <section class="surface-card p-4 sm:p-6"><div class="mb-4 flex items-center justify-between"><div><h3 class="font-bold">Upcoming academic dates</h3><p class="mt-1 text-xs text-slate-500">${events.length} scheduled items</p></div></div>
-        <div class="divide-y divide-slate-100">${events.length ? events.map(event => `<div class="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">${eventRow(event, allSections)}${canEdit ? `<div class="flex shrink-0 gap-2 sm:ml-2">${button("Edit", "edit-event", `data-id="${event.id}"`)}${button("Delete", "delete-event", `data-id="${event.id}"`, "btn-danger")}</div>` : ""}</div>`).join("") : emptyState("Nothing scheduled", "New academic events will appear here.")}</div>
+        <div class="divide-y divide-slate-100">${events.length ? events.map(event => `<div class="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">${eventRow(event, allSections)}${canEdit && canManageEventItem(event) ? `<div class="flex shrink-0 gap-2 sm:ml-2">${button("Edit", "edit-event", `data-id="${event.id}"`)}${button("Delete", "delete-event", `data-id="${event.id}"`, "btn-danger")}</div>` : ""}</div>`).join("") : emptyState("Nothing scheduled", "New academic events will appear here.")}</div>
       </section>`;
   }
 
@@ -2220,14 +2263,12 @@
         if (!requireRole(["professor", "officer", "admin"])) return;
         if (!announcement || !(state.activeRole === "admin" || announcement.authorRole === state.activeRole)) return showToast("You can only edit announcements posted by your role.", "error");
         if (!announcementTargetOfferings().some(offering => offering.id === announcement.offeringId)) return showToast("You cannot manage announcements for this subject.", "error");
-        if (state.activeRole === "officer" && !officerHasOffering(announcement.offeringId)) return showToast("You are not assigned to manage this subject.", "error");
         state.editingAnnouncement = id; state.showAnnouncementForm = true; render();
         break;
       case "archive-announcement":
         if (!requireRole(["professor", "officer", "admin"])) return;
         if (!announcement || !(state.activeRole === "admin" || announcement.authorRole === state.activeRole)) return showToast("You can only archive announcements posted by your role.", "error");
         if (!announcementTargetOfferings().some(offering => offering.id === announcement.offeringId)) return showToast("You cannot manage announcements for this subject.", "error");
-        if (state.activeRole === "officer" && !officerHasOffering(announcement.offeringId)) return showToast("You are not assigned to manage this subject.", "error");
         announcement.archived = true; saveState(); render(); showToast("Announcement archived.");
         break;
       case "restore-announcement":
@@ -2239,7 +2280,6 @@
         if (!requireRole(["professor", "officer", "admin"])) return;
         if (!announcement || !(state.activeRole === "admin" || announcement.authorRole === state.activeRole)) return showToast("You can only delete announcements posted by your role.", "error");
         if (!announcementTargetOfferings().some(offering => offering.id === announcement.offeringId)) return showToast("You cannot manage announcements for this subject.", "error");
-        if (state.activeRole === "officer" && !officerHasOffering(announcement.offeringId)) return showToast("You are not assigned to manage this subject.", "error");
         if (confirm("Delete this announcement permanently?")) {
           if (await deleteSharedRecord("announcements", id)) showToast("Announcement deleted.");
         }
@@ -2279,7 +2319,7 @@
         }
         break;
       case "toggle-event-form":
-        if (!requireRole(["professor", "admin"])) return;
+        if (!requireRole(["professor", "officer", "admin"]) || !canManageEvents()) return;
         state.showEventForm = !state.showEventForm; render();
         break;
       case "toggle-exam-form":
@@ -2307,13 +2347,13 @@
         state.editingEvent = null; state.showEventForm = false; render();
         break;
       case "edit-event":
-        if (!requireRole(["professor", "admin"])) return;
-        if (calendarEvent && !canManageAcrossOfferings() && calendarEvent.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this calendar item.", "error");
+        if (!requireRole(["professor", "officer", "admin"])) return;
+        if (!canManageEventItem(calendarEvent)) return showToast("You cannot manage this calendar item.", "error");
         if (calendarEvent) { state.editingEvent = id; state.showEventForm = true; render(); }
         break;
       case "delete-event":
-        if (!requireRole(["professor", "admin"])) return;
-        if (calendarEvent && !canManageAcrossOfferings() && calendarEvent.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this calendar item.", "error");
+        if (!requireRole(["professor", "officer", "admin"])) return;
+        if (!canManageEventItem(calendarEvent)) return showToast("You cannot manage this calendar item.", "error");
         if (calendarEvent && confirm(`Delete "${calendarEvent.title}" from the calendar?`)) {
           if (await deleteSharedRecord("events", id)) showToast("Calendar item deleted.");
         }
@@ -2473,7 +2513,6 @@
         : itemToEdit?.offeringId || state.activeOfferingId;
       const targetOffering = state.offerings.find(offering => offering.id === editOfferingId);
       if (!targetOffering || !announcementTargetOfferings().some(offering => offering.id === targetOffering.id)) return showToast("Choose an active subject from a section you can manage.", "error");
-      if (state.activeRole === "officer" && !officerHasOffering(targetOffering.id)) return showToast("You are not assigned to manage this subject.", "error");
       if (values.id) {
         const item = itemToEdit;
         if (!item || !(state.activeRole === "admin" || item.authorRole === state.activeRole)) return showToast("You cannot edit this announcement.", "error");
@@ -2509,12 +2548,18 @@
       persistActiveOffering();
       state.showScheduleForm = false; state.editingSchedule = null; saveState(); render();
     } else if (formId === "event-form" || formId === "exam-event-form") {
-      if (!requireRole(["professor", "admin"])) return;
+      if (formId === "exam-event-form" && !requireRole(["professor", "admin"])) return;
+      if (formId === "event-form" && (!requireRole(["professor", "officer", "admin"]) || !canManageEvents())) return;
       const targetOffering = offeringFromForm(values);
       if (!targetOffering) return showToast("Choose an active subject in a section you can manage.", "error");
+      const canManageTargetOffering = state.activeRole === "admin" ||
+        (state.activeRole === "professor" && professorAssignedOfferings().some(offering => offering.id === targetOffering.id)) ||
+        (state.activeRole === "officer" && announcementTargetOfferings().some(offering => offering.id === targetOffering.id));
+      if (!canManageTargetOffering) return showToast("You can only manage calendar entries in your assigned subjects and section.", "error");
       const date = new Date(values.date);
       if (Number.isNaN(date.getTime())) return showToast("Enter a valid date and time.", "error");
       const existing = values.id ? state.events.find(item => item.id === values.id) : null;
+      if (existing && formId === "event-form" && !canManageEventItem(existing)) return showToast("You cannot manage this calendar item.", "error");
       const update = {
         title: formId === "exam-event-form"
           ? existing?.title || `Examination — ${targetOffering.subject}`
@@ -2528,7 +2573,8 @@
         sectionId: targetOffering.section_id
       };
       if (existing) {
-        if (!canManageAcrossOfferings() && existing.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this calendar item.", "error");
+        if (formId === "event-form" && !canManageEventItem(existing)) return showToast("You cannot manage this calendar item.", "error");
+        if (formId === "exam-event-form" && !canManageAcrossOfferings() && existing.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this assessment.", "error");
         Object.assign(existing, update); showToast("Calendar item updated.");
       }
       else {
