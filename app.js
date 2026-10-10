@@ -498,7 +498,7 @@
       settings: renderSettings
     };
     const section = state.sections.find(item => item.id === currentOffering()?.section_id);
-    const context = state.activeTab !== "dashboard" && currentOffering() ? `<div class="mb-5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3"><div><p class="text-xs font-bold text-indigo-900">${escapeHtml(currentOffering().subject)}${currentOffering().course_code ? ` · ${escapeHtml(currentOffering().course_code)}` : ""}</p><p class="text-xs text-indigo-700">${escapeHtml(section?.name || "Section")}</p></div><p class="text-xs text-indigo-700">${state.activeRole === "student" ? "Section information" : "Managing assigned offering"}</p></div>` : "";
+    const context = !["dashboard", "announcements"].includes(state.activeTab) && currentOffering() ? `<div class="mb-5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3"><div><p class="text-xs font-bold text-indigo-900">${escapeHtml(currentOffering().subject)}${currentOffering().course_code ? ` · ${escapeHtml(currentOffering().course_code)}` : ""}</p><p class="text-xs text-indigo-700">${escapeHtml(section?.name || "Section")}</p></div><p class="text-xs text-indigo-700">${state.activeRole === "student" ? "Section information" : "Managing assigned offering"}</p></div>` : "";
     content.innerHTML = context + (pages[state.activeTab] || renderDashboard)();
     renderUserEditModal();
   }
@@ -1931,8 +1931,6 @@
         if (!requireRole(["professor"])) return;
         const offering = professorAssignedOfferings().find(item => item.id === control.dataset.offeringId);
         if (!offering) return showToast("That subject is not assigned to you.", "error");
-        state.activeOfferingId = offering.id;
-        persistActiveOffering();
         state.activeTab = "announcements";
         state.showAnnouncementForm = true;
         state.editingAnnouncement = null;
