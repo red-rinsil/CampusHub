@@ -108,17 +108,36 @@
   const accessMessage = document.getElementById("access-message");
   let pendingImport = null;
 
-  function saveState() {
-    if (!dataReady || !currentUser()) return;
+  function saveState({ reportErrors = true } = {}) {
+    if (!dataReady || !currentUser()) return Promise.resolve();
     try {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ activeTab: state.activeTab, announcementFilter: state.announcementFilter }));
     } catch (error) {
       console.error("CampusHub could not save browser preferences.", error);
     }
-    syncQueue = syncQueue.then(() => window.CampusHubStore.save(state)).catch(error => {
+    const pendingSave = syncQueue.then(() => window.CampusHubStore.save(state));
+    syncQueue = pendingSave.catch(error => {
       console.error("CampusHub could not save shared data.", error);
-      showToast(error.message || "Your changes could not be saved to the shared database.", "error");
+      if (reportErrors) showToast(error.message || "Your changes could not be saved to the shared database.", "error");
     });
+    return pendingSave;
+  }
+
+  async function deleteSharedRecord(collection, id, afterDelete) {
+    const pendingDelete = syncQueue.then(() => window.CampusHubStore.deleteRecord(collection, id));
+    syncQueue = pendingDelete.catch(() => {});
+    try {
+      await pendingDelete;
+      state[collection] = state[collection].filter(item => item.id !== id);
+      if (afterDelete) afterDelete();
+      render();
+      void saveState();
+      return true;
+    } catch (error) {
+      console.error(`CampusHub could not delete ${collection} record.`, error);
+      showToast(error.message || "The record could not be deleted.", "error");
+      return false;
+    }
   }
 
   function escapeHtml(value) {
@@ -312,6 +331,15 @@
   }
 
   function visibleCollections() {
+    if (state.activeRole === "student") {
+      const section = currentSection();
+      return {
+        announcements: sectionRecordsForCurrentRole(state.announcements, section),
+        schedules: sectionRecordsForCurrentRole(state.schedules, section),
+        events: sectionRecordsForCurrentRole(state.events, section),
+        scheduleHistory: sectionRecordsForCurrentRole(state.scheduleHistory, section)
+      };
+    }
     return {
       announcements: offeringScoped(state.announcements),
       schedules: offeringScoped(state.schedules),
@@ -517,11 +545,16 @@
         list.append(item);
       });
       preview.append(list);
-    } else {
+    } else if (result.records.length) {
       const success = document.createElement("p");
       success.className = "text-emerald-700";
       success.textContent = "All rows passed validation.";
       preview.append(success);
+    } else {
+      const empty = document.createElement("p");
+      empty.className = "text-amber-700";
+      empty.textContent = "No data rows were found. Add at least one class, exam, or quiz row to the file.";
+      preview.append(empty);
     }
     commitButton.disabled = result.records.length === 0;
     commitButton.textContent = result.records.length
@@ -529,11 +562,24 @@
       : "No valid rows to import";
   }
 
-  function applyBulkImport(result) {
+  async function applyBulkImport(result) {
     if (!requireRole(["professor", "admin"])) return;
+    if (!result.records.length) {
+      showToast("There are no valid rows to import.", "error");
+      return;
+    }
     const account = currentUser();
     const offering = currentOffering();
     if (!account || !offering) return showToast("Select an assigned class before importing.", "error");
+    const commitButton = document.getElementById("commit-import");
+    const previousSchedules = state.schedules;
+    const previousEvents = state.events;
+    const previousHistory = state.scheduleHistory;
+    state.schedules = [...previousSchedules];
+    state.events = [...previousEvents];
+    state.scheduleHistory = [...previousHistory];
+    commitButton.disabled = true;
+    commitButton.textContent = "Importing…";
     const importedAt = new Date().toISOString();
     let classCount = 0;
     let examCount = 0;
@@ -577,7 +623,19 @@
     });
 
     if (classCount) recordScheduleChange(`${classCount} class schedule(s) imported from file`);
-    saveState();
+    try {
+      await saveState({ reportErrors: false });
+    } catch (error) {
+      state.schedules = previousSchedules;
+      state.events = previousEvents;
+      state.scheduleHistory = previousHistory;
+      commitButton.disabled = false;
+      commitButton.textContent = `Import ${result.records.length} valid row(s)`;
+      render();
+      console.error("CampusHub could not save imported records.", error);
+      showToast(error.message || "The imported records could not be saved.", "error");
+      return;
+    }
     pendingImport = null;
     importModal.hidden = true;
     render();
@@ -659,7 +717,8 @@
 
   function renderDashboard() {
     const scoped = visibleCollections();
-    const nextEvents = scoped.events.filter(event => new Date(event.date) >= new Date()).sort((a, b) => new Date(a.date) - new Date(b.date));
+    const nextEvents = scoped.events.filter(event => new Date(event.date) >= new Date())
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
     const latestAnnouncements = scoped.announcements.filter(item => !item.archived)
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       .slice(0, 3);
@@ -1786,7 +1845,7 @@
         if (announcement.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this announcement.", "error");
         if (state.activeRole === "officer" && !officerHasOffering(announcement.offeringId)) return showToast("You are not assigned to manage this subject.", "error");
         if (confirm("Delete this announcement permanently?")) {
-          state.announcements = state.announcements.filter(item => item.id !== id); saveState(); render(); showToast("Announcement deleted.");
+          if (await deleteSharedRecord("announcements", id)) showToast("Announcement deleted.");
         }
         break;
       case "acknowledge":
@@ -1811,8 +1870,9 @@
         if (schedule && !canManageAcrossOfferings() && schedule.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this schedule.", "error");
         if (schedule && confirm(`Remove ${schedule.subject} from the timetable?`)) {
           const offering = state.offerings.find(item => item.id === schedule.offeringId) || null;
-          recordScheduleChange(`${schedule.subject} removed from ${schedule.day} timetable`, offering);
-          state.schedules = state.schedules.filter(item => item.id !== id); saveState(); render(); showToast("Class removed from timetable.");
+          if (await deleteSharedRecord("schedules", id, () => {
+            recordScheduleChange(`${schedule.subject} removed from ${schedule.day} timetable`, offering);
+          })) showToast("Class removed from timetable.");
         }
         break;
       case "toggle-event-form":
@@ -1837,7 +1897,7 @@
         if (!requireRole(["professor", "admin"])) return;
         if (calendarEvent && !canManageAcrossOfferings() && calendarEvent.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this assessment.", "error");
         if (calendarEvent && ["Examination", "Quiz"].includes(calendarEvent.type) && confirm(`Remove "${calendarEvent.title}" from the exam timetable?`)) {
-          state.events = state.events.filter(item => item.id !== id); saveState(); render(); showToast("Assessment removed from the exam timetable.");
+          if (await deleteSharedRecord("events", id)) showToast("Assessment removed from the exam timetable.");
         }
         break;
       case "cancel-event-form":
@@ -1852,7 +1912,7 @@
         if (!requireRole(["professor", "admin"])) return;
         if (calendarEvent && !canManageAcrossOfferings() && calendarEvent.offeringId !== state.activeOfferingId) return showToast("Select the class offering that contains this calendar item.", "error");
         if (calendarEvent && confirm(`Delete "${calendarEvent.title}" from the calendar?`)) {
-          state.events = state.events.filter(item => item.id !== id); saveState(); render(); showToast("Calendar item deleted.");
+          if (await deleteSharedRecord("events", id)) showToast("Calendar item deleted.");
         }
         break;
       case "cancel-user-form":

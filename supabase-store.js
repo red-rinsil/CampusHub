@@ -130,16 +130,11 @@
     });
   }
 
-  async function syncTable(table, rows, previousRows) {
+  async function upsertChangedRows(table, rows, previousRows) {
     const previous = new Map(previousRows.map(row => [row.id, JSON.stringify(row)]));
     const changed = rows.filter(row => previous.get(row.id) !== JSON.stringify(row));
     for (let index = 0; index < changed.length; index += 100) {
       unwrap(await client.from(table).upsert(changed.slice(index, index + 100), { onConflict: "id" }));
-    }
-    const currentIds = new Set(rows.map(row => row.id));
-    const removed = previousRows.filter(row => !currentIds.has(row.id)).map(row => row.id);
-    for (let index = 0; index < removed.length; index += 100) {
-      unwrap(await client.from(table).delete().in("id", removed.slice(index, index + 100)));
     }
   }
 
@@ -157,9 +152,26 @@
     };
     const previous = lastSynced || Object.fromEntries(Object.keys(snapshot).map(key => [key, []]));
     for (const [key, table] of Object.entries(tables)) {
-      await syncTable(table, snapshot[key], previous[key]);
+      await upsertChangedRows(table, snapshot[key], previous[key]);
     }
     lastSynced = structuredClone(snapshot);
+  }
+
+  async function deleteRecord(collection, id) {
+    assertReady();
+    if (!client.auth.getUser) throw new Error("Supabase authentication is unavailable.");
+    const { data, error } = await client.auth.getUser();
+    if (error) throw error;
+    if (!data.user) throw new Error("Sign in again before deleting records.");
+    if (!Object.prototype.hasOwnProperty.call(tables, collection)) throw new Error("Unsupported academic record type.");
+    const table = tables[collection];
+    if (typeof id !== "string" || !id.trim()) throw new Error("A record ID is required.");
+
+    const deleted = unwrap(await client.from(table).delete().eq("id", id).select("id"));
+    if (!deleted.length) throw new Error("The record was not deleted. It may already be removed or you may not have permission.");
+    if (lastSynced) {
+      lastSynced[collection] = lastSynced[collection].filter(row => row.id !== id);
+    }
   }
 
   async function redeemRoleKey(key) {
@@ -341,6 +353,7 @@
     client,
     load,
     save,
+    deleteRecord,
     redeemRoleKey,
     acknowledge,
     updateProfile,
