@@ -873,9 +873,7 @@
     const scopedEvents = allSections
       ? state.events.filter(event => sectionsForViewing().some(viewableSection =>
         (event.sectionId || state.offerings.find(offering => offering.id === event.offeringId)?.section_id) === viewableSection.id))
-      : ["admin", "professor"].includes(state.activeRole)
-        ? sectionRecordsForCurrentRole(state.events, section)
-        : offeringScoped(state.events);
+      : sectionRecordsForCurrentRole(state.events, section);
     const canEdit = canManageEvents();
     const events = [...scopedEvents].sort((a, b) => new Date(a.date) - new Date(b.date));
     const actions = `<div class="flex flex-wrap items-end gap-2">${viewSectionSelector("calendar")}${canEdit ? button("＋ Add calendar item", "toggle-event-form", "", "btn-primary") : ""}</div>`;
