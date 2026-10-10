@@ -107,6 +107,7 @@
   const authMessage = document.getElementById("auth-message");
   const accessMessage = document.getElementById("access-message");
   let pendingImport = null;
+  let importValidationId = 0;
 
   function saveState({ reportErrors = true } = {}) {
     if (!dataReady || !currentUser()) return Promise.resolve();
@@ -530,7 +531,7 @@
     if (!["professor", "admin"].includes(state.activeRole)) return "";
     return `<div class="flex flex-wrap gap-2">
       ${button("Import CSV / TXT", "open-import", "", "btn-primary")}
-      ${button("Export schedules & exams", "export-schedules")}
+      ${button("Export class schedules", "export-schedules")}
     </div>`;
   }
 
@@ -557,26 +558,40 @@
   function exportScheduleData() {
     if (!requireRole(["professor", "admin"])) return;
     const offering = currentOffering();
-    if (!offering) return showToast("Select an assigned class before exporting.", "error");
+    if (!offering) return showToast("Select a class subject before exporting.", "error");
     const scoped = visibleCollections();
     const header = ["Type", "Subject", "Professor", "Classroom", "DayOfWeek", "Time", "EndTime", "Date", "Title", "Details", "ImportedBy", "ImportedAt"];
     const rows = scoped.schedules.map(item => [
       "Class", item.subject, assignedProfessorNames(item.offeringId).join("; "), item.room, item.day, item.start, item.end, item.date || "", "", "",
       item.importedByName || item.importedBy || "", item.importedAt || ""
     ]);
-    scoped.events.filter(item => ["Examination", "Quiz"].includes(item.type)).forEach(item => {
-      const date = new Date(item.date);
-      const localDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-      const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-      rows.push([item.type, item.subject, item.instructor || "", item.location, "", time, "", localDate, item.title, item.details || "", item.importedByName || item.importedBy || "", item.importedAt || ""]);
-    });
-    downloadText("campushub-schedules-and-exams.csv", [header, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n"));
-    showToast(`Exported ${scoped.schedules.length} classes and ${rows.length - scoped.schedules.length} exams/quizzes.`);
+    downloadText("campushub-class-schedules.csv", [header, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n"));
+    showToast(`Exported ${rows.length} class schedule(s).`);
+  }
+
+  function importTargetOfferings() {
+    const offerings = state.activeRole === "admin" ? availableOfferings() : professorAssignedOfferings();
+    return offerings.filter(offering =>
+      state.sections.some(section => section.id === offering.section_id && section.active)
+    );
+  }
+
+  function populateImportSectionOptions() {
+    const select = document.getElementById("import-section");
+    const sections = [...new Set(importTargetOfferings().map(offering => offering.section_id))]
+      .map(sectionId => state.sections.find(section => section.id === sectionId))
+      .filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    select.replaceChildren(new Option("Select destination section", ""));
+    sections.forEach(section => select.add(new Option(section.name, section.id)));
+    select.value = "";
+    select.disabled = sections.length === 0;
   }
 
   function openImportDialog() {
     if (!requireRole(["professor", "admin"])) return;
     pendingImport = null;
+    populateImportSectionOptions();
     document.getElementById("import-file").value = "";
     document.getElementById("import-preview").replaceChildren();
     document.getElementById("import-preview").classList.add("hidden");
@@ -585,7 +600,7 @@
     commitButton.disabled = true;
     commitButton.textContent = "Validate a file to continue";
     importModal.hidden = false;
-    document.getElementById("import-file").focus();
+    document.getElementById("import-section").focus();
   }
 
   function renderImportPreview(result) {
@@ -632,8 +647,17 @@
       return;
     }
     const account = currentUser();
-    const offering = currentOffering();
-    if (!account || !offering) return showToast("Select an assigned class before importing.", "error");
+    const destinationSectionId = document.getElementById("import-section").value;
+    const targetOfferings = importTargetOfferings().filter(offering => offering.section_id === destinationSectionId);
+    if (!account || !destinationSectionId) return showToast("Select the destination section before importing.", "error");
+    if (!targetOfferings.length) return showToast("No accessible active subjects are available in the selected section.", "error");
+    if (result.destinationSectionId !== destinationSectionId) {
+      return showToast("The destination section changed. Revalidate the file before importing.", "error");
+    }
+    const targetOfferingsById = new Map(targetOfferings.map(offering => [offering.id, offering]));
+    if (result.records.some(record => !targetOfferingsById.has(record.offeringId))) {
+      return showToast("One or more matched subjects are no longer available in the selected section. Revalidate the file.", "error");
+    }
     const commitButton = document.getElementById("commit-import");
     const previousSchedules = state.schedules;
     const previousEvents = state.events;
@@ -646,8 +670,10 @@
     const importedAt = new Date().toISOString();
     let classCount = 0;
     let examCount = 0;
+    const importedClassesByOffering = new Map();
 
     result.records.forEach(record => {
+      const offering = targetOfferingsById.get(record.offeringId);
       if (record.kind === "class") {
         state.schedules.push({
           id: generateId("sch"),
@@ -663,6 +689,10 @@
           importedByName: account.name,
           importedAt
         });
+        importedClassesByOffering.set(
+          offering.id,
+          (importedClassesByOffering.get(offering.id) || 0) + 1
+        );
         classCount += 1;
       } else {
         const localDateTime = new Date(`${record.date}T${record.time}:00`);
@@ -685,7 +715,10 @@
       }
     });
 
-    if (classCount) recordScheduleChange(`${classCount} class schedule(s) imported from file`);
+    importedClassesByOffering.forEach((count, offeringId) => {
+      const offering = targetOfferings.find(item => item.id === offeringId);
+      recordScheduleChange(`${count} class schedule(s) imported from file`, offering);
+    });
     try {
       await saveState({ reportErrors: false });
     } catch (error) {
@@ -704,6 +737,64 @@
     render();
     const message = `Successfully imported ${classCount} class schedule(s) and ${examCount} exam/quiz record(s).`;
     showToast(result.errors.length ? `${message} ${result.errors.length} invalid row(s) were skipped.` : message);
+  }
+
+  async function validateImportFile(file) {
+    const validationId = ++importValidationId;
+    const preview = document.getElementById("import-preview");
+    const commitButton = document.getElementById("commit-import");
+    const message = document.getElementById("import-message");
+    pendingImport = null;
+    message.classList.add("hidden");
+    commitButton.disabled = true;
+    commitButton.textContent = "Validating file…";
+    if (!file) {
+      preview.classList.add("hidden");
+      commitButton.textContent = "Validate a file to continue";
+      return;
+    }
+    if (!/\.(csv|txt)$/i.test(file.name)) {
+      renderImportPreview({ records: [], errors: ["Choose a .csv or .txt file."] });
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      renderImportPreview({ records: [], errors: ["File exceeds the 2 MB import limit."] });
+      return;
+    }
+    const sectionId = document.getElementById("import-section").value;
+    if (!sectionId) {
+      renderImportPreview({ records: [], errors: ["Select the destination section before validating the file."] });
+      return;
+    }
+    try {
+      const result = window.CampusHubImport.parse(await file.text());
+      if (validationId !== importValidationId) return;
+      const destinationOfferings = importTargetOfferings()
+        .filter(offering => offering.section_id === sectionId);
+      const normalizeSubject = value => value.trim().toLocaleLowerCase();
+      result.records = result.records.flatMap(record => {
+        const matches = destinationOfferings.filter(offering =>
+          normalizeSubject(offering.subject) === normalizeSubject(record.subject)
+        );
+        if (matches.length !== 1) {
+          result.errors.push(matches.length
+            ? `Row ${record.line}: subject "${record.subject}" matches multiple offerings in the selected section.`
+            : `Row ${record.line}: subject "${record.subject}" was not found in the selected destination section.`);
+          return [];
+        }
+        return [{ ...record, offeringId: matches[0].id }];
+      });
+      if (result.records.length > 10000) {
+        renderImportPreview({ records: [], errors: ["Files may contain no more than 10,000 valid records."] });
+        return;
+      }
+      result.destinationSectionId = sectionId;
+      pendingImport = result;
+      renderImportPreview(result);
+    } catch (error) {
+      if (validationId !== importValidationId) return;
+      renderImportPreview({ records: [], errors: [error.message || "The file could not be parsed."] });
+    }
   }
 
   document.getElementById("download-import-template").addEventListener("click", event => {
@@ -725,51 +816,11 @@
 
   document.getElementById("import-file").addEventListener("change", async event => {
     if (!canImportSchedules()) return;
-    const file = event.target.files?.[0];
-    pendingImport = null;
-    const preview = document.getElementById("import-preview");
-    const commitButton = document.getElementById("commit-import");
-    const message = document.getElementById("import-message");
-    message.classList.add("hidden");
-    commitButton.disabled = true;
-    commitButton.textContent = "Validating file…";
-    if (!file) {
-      preview.classList.add("hidden");
-      commitButton.textContent = "Validate a file to continue";
-      return;
-    }
-    if (!/\.(csv|txt)$/i.test(file.name)) {
-      renderImportPreview({ records: [], errors: ["Choose a .csv or .txt file."] });
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      renderImportPreview({ records: [], errors: ["File exceeds the 2 MB import limit."] });
-      return;
-    }
-    try {
-      const result = window.CampusHubImport.parse(await file.text());
-      const offering = currentOffering();
-      if (!offering) {
-        renderImportPreview({ records: [], errors: ["Select an assigned class before importing."] });
-        return;
-      }
-      result.records = result.records.filter((record, index) => {
-        let valid = true;
-        if (record.subject.trim().toLocaleLowerCase() !== offering.subject.trim().toLocaleLowerCase()) {
-          result.errors.push(`Imported record ${record.line || index + 1}: subject "${record.subject}" does not match selected subject "${offering.subject}".`);
-          valid = false;
-        }
-        return valid;
-      });
-      if (result.records.length > 10000) {
-        renderImportPreview({ records: [], errors: ["Files may contain no more than 10,000 valid rows."] });
-        return;
-      }
-      pendingImport = result;
-      renderImportPreview(result);
-    } catch (error) {
-      renderImportPreview({ records: [], errors: [error.message || "The file could not be parsed."] });
-    }
+    await validateImportFile(event.target.files?.[0]);
+  });
+
+  document.getElementById("import-section").addEventListener("change", async () => {
+    await validateImportFile(document.getElementById("import-file").files?.[0]);
   });
 
   document.getElementById("import-form").addEventListener("submit", event => {
@@ -1143,7 +1194,7 @@
     const scopedEvents = sectionRecordsForCurrentRole(state.events, section);
     const exams = scopedEvents.filter(event => ["Examination", "Quiz"].includes(event.type)).sort((a, b) => new Date(a.date) - new Date(b.date));
     const canEdit = canManageEvents();
-    const actions = `<div class="flex flex-wrap items-end gap-2">${viewSectionSelector("exams", Boolean(state.editingExam))}${canEdit ? button("＋ Add exam", "toggle-exam-form", "", "btn-primary") : ""}${bulkScheduleActions()}</div>`;
+    const actions = `<div class="flex flex-wrap items-end gap-2">${viewSectionSelector("exams", Boolean(state.editingExam))}${canEdit ? button("＋ Add exam", "toggle-exam-form", "", "btn-primary") : ""}</div>`;
     const preferredOfferingId = state.offerings.find(offering => offering.section_id === section?.id && offering.active)?.id || state.activeOfferingId;
     return `${pageIntro("Assessment planning", "Exam timetable", "Check the date, start time, subject, and room for each exam or quiz. Unlike the weekly class schedule, every assessment shows its full calendar date.", actions)}
       ${state.showExamForm ? eventForm(scopedEvents.find(item => item.id === state.editingExam), true, preferredOfferingId, section?.id) : ""}
