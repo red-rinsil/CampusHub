@@ -557,16 +557,16 @@
 
   function exportScheduleData() {
     if (!requireRole(["professor", "admin"])) return;
-    const offering = currentOffering();
-    if (!offering) return showToast("Select a class subject before exporting.", "error");
-    const scoped = visibleCollections();
+    const section = selectedViewSection("timetable");
+    if (!section) return showToast("Select an accessible section before exporting.", "error");
+    const schedules = sectionRecordsForCurrentRole(state.schedules, section);
     const header = ["Type", "Subject", "Professor", "Classroom", "DayOfWeek", "Time", "EndTime", "Date", "Title", "Details", "ImportedBy", "ImportedAt"];
-    const rows = scoped.schedules.map(item => [
+    const rows = schedules.map(item => [
       "Class", item.subject, assignedProfessorNames(item.offeringId).join("; "), item.room, item.day, item.start, item.end, item.date || "", "", "",
       item.importedByName || item.importedBy || "", item.importedAt || ""
     ]);
     downloadText("campushub-class-schedules.csv", [header, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n"));
-    showToast(`Exported ${rows.length} class schedule(s).`);
+    showToast(`Exported ${rows.length} class schedule(s) for ${section.name}.`);
   }
 
   function importTargetOfferings() {
@@ -858,7 +858,7 @@
       <div class="mt-6 grid gap-6 xl:grid-cols-[1.35fr_.85fr]">
         <section class="surface-card p-5 sm:p-6">
           <div class="flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-indigo-600">Coming up</p><h3 class="mt-1 text-lg font-bold">Exams & deadlines</h3></div>${button("View calendar", "navigate", 'data-target="calendar"', "btn-secondary")}</div>
-          <div class="mt-5 divide-y divide-slate-100">${nextEvents.length ? nextEvents.slice(0, 4).map(event => eventRow(event, state.activeRole !== "student")).join("") : emptyState("You're all caught up", "No upcoming academic dates are scheduled.")}</div>
+          <div class="mt-5 divide-y divide-slate-100">${nextEvents.length ? nextEvents.slice(0, 6).map(event => eventRow(event, state.activeRole !== "student")).join("") : emptyState("You're all caught up", "No upcoming academic dates are scheduled.")}</div>
         </section>
         <section class="surface-card flex flex-col p-5 sm:p-6">
           <div class="flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-rose-600">Campus updates</p><h3 class="mt-1 text-lg font-bold">Latest announcements</h3></div>${button("All announcements", "navigate", 'data-target="announcements"', "btn-secondary")}</div>
