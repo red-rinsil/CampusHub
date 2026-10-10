@@ -192,6 +192,7 @@
       return professorAssignedOfferings().some(offering => offering.id === item.offeringId);
     }
     return state.activeRole === "officer" &&
+      Boolean(state.currentUserId && item.createdBy === state.currentUserId) &&
       announcementTargetOfferings().some(offering => offering.id === item.offeringId);
   }
 
@@ -1343,7 +1344,7 @@
   }
 
   function eventForm(item = null, examOnly = false, selectedOfferingId = null, sectionId = null) {
-    const eventTypes = ["Quiz", "Examination", "Project Deadline", "Consultation", "Special Class"];
+    const eventTypes = ["Quiz", "Examination", "Project Deadline", "Consultation", "Special Class", "Announcement", "Important"];
     const formId = examOnly ? "exam-event-form" : "event-form";
     const formTitle = examOnly ? "exam" : "calendar item";
     return `<form id="${formId}" class="surface-card mb-5 border-indigo-100 bg-indigo-50/30 p-4"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">${item ? `Edit ${formTitle}` : `Add ${formTitle}`}</h3>${button("Cancel", examOnly ? "cancel-exam-form" : "cancel-event-form")}</div>
@@ -2578,7 +2579,7 @@
         Object.assign(existing, update); showToast("Calendar item updated.");
       }
       else {
-        state.events.push({ id: generateId("evt"), ...update });
+        state.events.push({ id: generateId("evt"), createdBy: state.currentUserId, ...update });
         showToast("Calendar item added.");
       }
       state.activeOfferingId = targetOffering.id;
