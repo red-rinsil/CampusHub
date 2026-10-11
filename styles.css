@@ -197,6 +197,52 @@
 .badge-class { background: #e0e7ff; color: #4338ca; }
 .badge-examination { background: #ffedd5; color: #c2410c; }
 
+.markdown-content > :first-child {
+  margin-top: 0;
+}
+
+.markdown-content > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-content p,
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  margin-top: .45em;
+  margin-bottom: .45em;
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.markdown-content h1 { font-size: 1.5em; }
+.markdown-content h2 { font-size: 1.35em; }
+.markdown-content h3 { font-size: 1.2em; }
+.markdown-content h4 { font-size: 1.1em; }
+.markdown-content h5 { font-size: 1em; }
+.markdown-content h6 { font-size: .9em; }
+
+.markdown-content ul,
+.markdown-content ol {
+  margin-top: .45em;
+  margin-bottom: .45em;
+  padding-left: 1.5em;
+}
+
+.markdown-content ul { list-style: disc; }
+.markdown-content ol { list-style: decimal; }
+
 .surface-card {
   border: 1px solid #e2e8f0;
   border-radius: 1rem;

@@ -148,6 +148,60 @@
     })[char]);
   }
 
+  function renderMarkdownInline(value) {
+    return escapeHtml(value)
+      .replace(/\*\*(.+?)\*\*|__(.+?)__/g, (_, a, b) => `<strong>${a || b}</strong>`)
+      .replace(/\*([^*\n]+)\*|_([^_\n]+)_/g, (_, a, b) => `<em>${a || b}</em>`);
+  }
+
+  function renderMarkdown(value) {
+    const lines = String(value ?? "").replace(/\r\n?/g, "\n").split("\n");
+    const output = [];
+    let paragraph = [];
+    let listType = null;
+
+    const flushParagraph = () => {
+      if (!paragraph.length) return;
+      output.push(`<p>${paragraph.map(renderMarkdownInline).join(" ")}</p>`);
+      paragraph = [];
+    };
+    const closeList = () => {
+      if (!listType) return;
+      output.push(`</${listType}>`);
+      listType = null;
+    };
+
+    lines.forEach(line => {
+      const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+      const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
+      const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+      if (!line.trim()) {
+        flushParagraph();
+        closeList();
+      } else if (heading) {
+        flushParagraph();
+        closeList();
+        const level = heading[1].length;
+        output.push(`<h${level}>${renderMarkdownInline(heading[2])}</h${level}>`);
+      } else if (unordered || ordered) {
+        flushParagraph();
+        const nextType = unordered ? "ul" : "ol";
+        if (listType !== nextType) {
+          closeList();
+          output.push(`<${nextType}>`);
+          listType = nextType;
+        }
+        output.push(`<li>${renderMarkdownInline((unordered || ordered)[1])}</li>`);
+      } else {
+        closeList();
+        paragraph.push(line.trim());
+      }
+    });
+    flushParagraph();
+    closeList();
+    return `<div class="markdown-content">${output.join("")}</div>`;
+  }
+
   function canManageAnnouncements() {
     return ["professor", "admin"].includes(state.activeRole) ||
       (state.activeRole === "officer" && announcementTargetOfferings().length > 0);
@@ -961,13 +1015,13 @@
         </section>
         <section class="surface-card flex flex-col p-5 sm:p-6">
           <div class="flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-rose-600">Campus updates</p><h3 class="mt-1 text-lg font-bold">Latest announcements</h3></div>${button("All announcements", "navigate", 'data-target="announcements"', "btn-secondary")}</div>
-          <div class="mt-5 flex flex-1 flex-col gap-3">${latestAnnouncements.length ? latestAnnouncements.map(group => {
+          <div class="mt-5 flex flex-1 flex-col gap-3">${latestAnnouncements.length ? latestAnnouncements.slice(0, 1).map(group => {
             const item = group[0];
             const targets = [...new Set(group.map(announcementTargetLabel))];
             return `<article class="h-auto min-h-0 flex-1 rounded-xl border ${item.urgent ? "border-rose-100 bg-rose-50/60" : "border-slate-100 bg-slate-50/60"} p-4">
             <div class="flex items-center justify-between gap-2">${badge(announcementCategory(item))}<span class="text-xs text-slate-500">${relativeDate(item.createdAt)}</span></div>
             <h4 class="mt-3 text-sm font-bold text-slate-900">${escapeHtml(item.title)}</h4>
-            <p class="mt-1 whitespace-pre-line break-words text-xs leading-5 text-slate-600">${escapeHtml(item.content)}</p>
+            <div class="mt-1 break-words text-xs leading-5 text-slate-600">${renderMarkdown(item.content)}</div>
             <p class="mt-2 text-[11px] text-slate-500">${escapeHtml(targets.join(", "))}</p>
           </article>`;
           }).join("") : emptyState("No announcements yet", "The latest campus updates will appear here.")}</div>
@@ -982,10 +1036,10 @@
     return `<article class="surface-card p-4 sm:p-5"><div class="flex items-start justify-between"><p class="text-sm font-medium text-slate-500">${title}</p><span class="${color}">${navIcon(iconName)}</span></div><p class="mt-4 text-3xl font-bold tracking-tight">${value}</p><p class="mt-1 text-xs text-slate-500">${subtitle}</p></article>`;
   }
 
-  function eventRow(event, showSection = false) {
+  function eventRow(event, showSection = false, showDetails = false) {
     const sectionName = state.sections.find(section => section.id === event.sectionId ||
       (!event.sectionId && state.offerings.some(offering => offering.id === event.offeringId && offering.section_id === section.id)))?.name;
-    return `<div class="flex items-center gap-3 py-3.5"><div class="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl bg-indigo-50 text-indigo-700"><span class="text-[10px] font-bold uppercase">${escapeHtml(new Intl.DateTimeFormat("en", { month: "short" }).format(new Date(event.date)))}</span><span class="text-lg font-bold leading-5">${new Date(event.date).getDate()}</span></div><div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-2">${badge(event.type)}<span class="text-xs text-slate-500">${escapeHtml(event.subject)}</span>${showSection && sectionName ? `<span class="text-xs font-medium text-indigo-600">${escapeHtml(sectionName)}</span>` : ""}</div><p class="mt-1 truncate text-sm font-semibold">${escapeHtml(event.title)}</p><p class="text-xs text-slate-500">${formatTime(event.date)} · ${escapeHtml(event.location)}</p></div><span class="hidden text-xs font-medium text-slate-500 sm:inline">${relativeDate(event.date)}</span></div>`;
+    return `<div class="flex items-center gap-3 py-3.5"><div class="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl bg-indigo-50 text-indigo-700"><span class="text-[10px] font-bold uppercase">${escapeHtml(new Intl.DateTimeFormat("en", { month: "short" }).format(new Date(event.date)))}</span><span class="text-lg font-bold leading-5">${new Date(event.date).getDate()}</span></div><div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-2">${badge(event.type)}<span class="text-xs text-slate-500">${escapeHtml(event.subject)}</span>${showSection && sectionName ? `<span class="text-xs font-medium text-indigo-600">${escapeHtml(sectionName)}</span>` : ""}</div><p class="mt-1 truncate text-sm font-semibold">${escapeHtml(event.title)}</p><p class="text-xs text-slate-500">${formatTime(event.date)} · ${escapeHtml(event.location)}</p>${showDetails && event.details ? `<div class="mt-1 text-xs leading-5 text-slate-500">${renderMarkdown(event.details)}</div>` : ""}</div><span class="hidden text-xs font-medium text-slate-500 sm:inline">${relativeDate(event.date)}</span></div>`;
   }
 
   function emptyState(title, description) {
@@ -1037,7 +1091,7 @@
           ${announcementTargetFields(offerings)}
           ${announcementSubjectCategoryField(offerings)}
           <label class="flex items-center gap-2 text-sm font-medium text-slate-700 sm:col-span-2"><input type="checkbox" name="urgent" class="h-4 w-4 rounded border-slate-300 text-indigo-600"> Mark as urgent</label>
-          <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required></textarea></label>
+          <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required></textarea><span class="mt-1 block text-[11px] font-normal text-slate-500">Markdown supported: **bold**, *italic*, # headings, - bullets, and 1. numbered lists.</span></label>
         </div>
         <div class="mt-3 flex justify-end"><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700">Publish announcement</button></div>
       </form>`;
@@ -1055,7 +1109,7 @@
         <label class="block text-xs font-semibold text-slate-600">Category<select name="category" class="form-control mt-1.5" data-announcement-category required>${[...new Set(["General", "Exam Notice", "Class Cancellation", "Deadline", "Tertiary", "Senior High", "Subject", item.category])].map(value => `<option ${((value === "Subject" && editingSubjectCategory) || (value === item.category && !editingSubjectCategory)) ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}</select></label>
         <label class="block text-xs font-semibold text-slate-600 sm:col-span-2 ${editingSubjectCategory ? "" : "hidden"}" data-edit-subject-container>Subject subcategory<select name="subjectOfferingId" class="form-control mt-1.5" data-edit-subject-select ${editingSubjectCategory ? "required" : ""}>${editOfferings.map(offering => `<option value="${escapeHtml(offering.id)}" ${offering.id === item.offeringId ? "selected" : ""}>${escapeHtml(offering.subject)}${offering.course_code ? ` (${escapeHtml(offering.course_code)})` : ""}</option>`).join("")}</select></label>
         <label class="flex items-center gap-2 self-end pb-3 text-sm font-medium text-slate-700"><input type="checkbox" name="urgent" class="h-4 w-4 rounded border-slate-300 text-indigo-600" ${item?.urgent ? "checked" : ""}> Mark as urgent</label>
-        <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required>${editing ? escapeHtml(item.content) : ""}</textarea></label>
+        <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required>${editing ? escapeHtml(item.content) : ""}</textarea><span class="mt-1 block text-[11px] font-normal text-slate-500">Markdown supported: **bold**, *italic*, # headings, - bullets, and 1. numbered lists.</span></label>
       </div>
       <div class="mt-3 flex justify-end"><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700">${editing ? "Save changes" : "Publish announcement"}</button></div>
     </form>`;
@@ -1211,7 +1265,7 @@
         ${announcementTargetFields(offerings)}
         ${announcementSubjectCategoryField(offerings)}
         <label class="flex items-center gap-2 text-sm font-medium text-slate-700 sm:col-span-2"><input type="checkbox" name="urgent" class="h-4 w-4 rounded border-slate-300 text-indigo-600"> Mark as urgent</label>
-        <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required></textarea></label>
+        <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Announcement details<textarea name="content" class="form-control mt-1.5" rows="4" required></textarea><span class="mt-1 block text-[11px] font-normal text-slate-500">Markdown supported: **bold**, *italic*, # headings, - bullets, and 1. numbered lists.</span></label>
       </div>
       <div class="mt-3 flex justify-end"><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700">Publish announcement</button></div>
     </form>`;
@@ -1252,7 +1306,7 @@
     return `<article class="rounded-xl border ${item.urgent ? "border-rose-200" : "border-slate-200"} p-4 sm:p-5">
       <div class="flex flex-wrap items-center gap-2">${badge(category)}${item.urgent ? '<span class="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700">Urgent</span>' : ""}<span class="ml-auto text-xs text-slate-500">${relativeDate(item.createdAt)} · ${escapeHtml(formatTime(item.createdAt))}</span></div>
       <h3 class="mt-3 text-lg font-bold tracking-tight">${escapeHtml(item.title)}</h3><p class="mt-1 text-xs font-medium text-slate-500">Posted by ${escapeHtml(item.author)}</p>
-      <p class="mt-3 whitespace-pre-line text-sm leading-6 text-slate-600">${escapeHtml(item.content)}</p>
+      <div class="mt-3 text-sm leading-6 text-slate-600">${renderMarkdown(item.content)}</div>
       <div class="mt-3 flex flex-wrap gap-1.5">${targets.map(target => `<span class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600">${escapeHtml(target)}</span>`).join("")}</div>
       <div class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
         <span class="text-xs font-medium text-slate-500">${group.length === 1 ? `${item.acknowledgments.length}/${state.studentCounts[item.offeringId] || 0} students acknowledged` : `${group.length} target copies · acknowledgment counts shown per target`}</span>
@@ -1307,7 +1361,7 @@
           const date = new Date(exam.date);
           return `<article class="grid gap-4 p-4 sm:grid-cols-[9rem_1fr_auto] sm:items-center sm:px-5">
             <div class="rounded-xl bg-indigo-50 px-3 py-2.5 text-center sm:text-left"><p class="text-xs font-bold uppercase tracking-wide text-indigo-700">${escapeHtml(new Intl.DateTimeFormat("en", { weekday: "short" }).format(date))}</p><p class="mt-0.5 text-sm font-bold text-slate-900">${escapeHtml(formatDate(exam.date, { month: "short", day: "numeric", year: "numeric" }))}</p><p class="mt-0.5 text-xs font-semibold text-indigo-700">${escapeHtml(formatTime(exam.date))}</p></div>
-            <div class="min-w-0"><div class="flex flex-wrap items-center gap-2">${badge("Examination")}<span class="text-xs text-slate-500">${escapeHtml(exam.subject)}</span></div><p class="mt-1.5 text-sm text-slate-500">${escapeHtml(exam.location)}</p>${exam.details ? `<p class="mt-1 text-xs leading-5 text-slate-500">${escapeHtml(exam.details)}</p>` : ""}</div>
+            <div class="min-w-0"><div class="flex flex-wrap items-center gap-2">${badge("Examination")}<span class="text-xs text-slate-500">${escapeHtml(exam.subject)}</span></div><p class="mt-1.5 text-sm text-slate-500">${escapeHtml(exam.location)}</p>${exam.details ? `<div class="mt-1 text-xs leading-5 text-slate-500">${renderMarkdown(exam.details)}</div>` : ""}</div>
             ${canEdit ? `<div class="flex gap-2 sm:justify-end">${button("Edit", "edit-exam", `data-id="${exam.id}"`)}${button("Remove", "delete-exam", `data-id="${exam.id}"`, "btn-danger")}</div>` : ""}
           </article>`;
         }).join("")}</div>` : `<div class="p-5">${emptyState("No exams scheduled", canEdit ? "Add an examination to publish a dated entry here." : "Examination dates will appear here when they are published.")}</div>`}
@@ -1339,7 +1393,7 @@
     return `${pageIntro("Never miss a date", "Academic calendar", "Examinations, quizzes, deadlines, and special class in one place.", actions)}
       ${state.showEventForm ? eventForm(scopedEvents.find(item => item.id === state.editingEvent), false, selectedOffering, allSections ? null : section?.id) : ""}
       <section class="surface-card p-4 sm:p-6"><div class="mb-4 flex items-center justify-between"><div><h3 class="font-bold">Upcoming academic dates</h3><p class="mt-1 text-xs text-slate-500">${events.length} scheduled items</p></div></div>
-        <div class="divide-y divide-slate-100">${events.length ? events.map(event => `<div class="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">${eventRow(event, allSections)}${canEdit && canManageEventItem(event) ? `<div class="flex shrink-0 gap-2 sm:ml-2">${button("Edit", "edit-event", `data-id="${event.id}"`)}${button("Delete", "delete-event", `data-id="${event.id}"`, "btn-danger")}</div>` : ""}</div>`).join("") : emptyState("Nothing scheduled", "New academic events will appear here.")}</div>
+        <div class="divide-y divide-slate-100">${events.length ? events.map(event => `<div class="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">${eventRow(event, allSections, true)}${canEdit && canManageEventItem(event) ? `<div class="flex shrink-0 gap-2 sm:ml-2">${button("Edit", "edit-event", `data-id="${event.id}"`)}${button("Delete", "delete-event", `data-id="${event.id}"`, "btn-danger")}</div>` : ""}</div>`).join("") : emptyState("Nothing scheduled", "New academic events will appear here.")}</div>
       </section>`;
   }
 
@@ -1354,7 +1408,7 @@
       ${examOnly ? "" : `<label class="block text-xs font-semibold text-slate-600">Type<select name="type" class="form-control mt-1.5">${eventTypes.map(type => `<option ${item?.type === type ? "selected" : ""}>${type}</option>`).join("")}</select></label>`}
       <label class="block text-xs font-semibold text-slate-600">Date and time<input class="form-control mt-1.5" type="datetime-local" name="date" required value="${item ? escapeHtml(new Date(new Date(item.date).getTime() - new Date(item.date).getTimezoneOffset() * 60000).toISOString().slice(0, 16)) : ""}"></label>
       <label class="block text-xs font-semibold text-slate-600">Location<input class="form-control mt-1.5" name="location" required value="${item ? escapeHtml(item.location) : ""}"></label>
-      <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Details<textarea class="form-control mt-1.5" rows="3" name="details">${item ? escapeHtml(item.details) : ""}</textarea></label>
+      <label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Details<textarea class="form-control mt-1.5" rows="3" name="details">${item ? escapeHtml(item.details) : ""}</textarea><span class="mt-1 block text-[11px] font-normal text-slate-500">Markdown supported: **bold**, *italic*, # headings, - bullets, and 1. numbered lists.</span></label>
       </div><div class="mt-4 flex justify-end"><button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white">${item ? "Save changes" : examOnly ? "Add exam" : "Add to calendar"}</button></div></form>`;
   }
 
