@@ -40,9 +40,10 @@ The landing page introduces the problem CampusHub addresses and the features it 
 1. Choose **Register** and enter your full name, email address, and password. New registrations have the Student role.
 2. If email confirmation is enabled in Supabase, follow the confirmation link before logging in.
 3. Return to CampusHub, choose **Log in**, and enter the registered email and password.
-4. To leave your account, select **Log out** in the application header.
+4. Join a section or redeem an access key from your administrator.
+5. To leave your account, select **Log out** in the application header.
 
-Do not enter an elevated role during registration. An administrator can invite users, assign roles, or issue one-time access keys. An eligible student can select **Redeem key** in the application header and enter a key provided by an administrator.
+*Note: An administrator can invite users, assign roles, or issue one-time access keys. An eligible student can select **Redeem key** in the application header and enter a key provided by an administrator.*
 
 ### Main navigation
 
