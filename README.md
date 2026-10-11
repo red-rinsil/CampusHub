@@ -1,6 +1,6 @@
 # CampusHub
 
-Check out the live website here: [CampusHub](https://red-rinsil.github.io/CampusHub/)
+### Check out the live website here: [CampusHub](https://red-rinsil.github.io/CampusHub/)
 
 **Centralized Class and Examination Schedules and Announcement Management System**
 
