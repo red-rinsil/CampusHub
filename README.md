@@ -31,7 +31,7 @@ You could register an account and use any of this redeemable keys:
 - ***Professor:*** 67A883CF-59070381-E3F472C2, 28CC6C36-2C30EF66-8F7EFD7C, 2F3C6E27-8AC90737-F3D55643
 - ***Class Officer:*** 47039A17-D3A8D000-140BD1BE, D1889024-57F46B9A-11EB4DD9, 0982ECD7-8D5E1546-2E0DC8C9
 
-Note that once you have elevated role, you cannot redeem another key.
+*Note: once you have redeemed a key or have elevated role, you cannot redeem another key.*
 
 ### Landing page and account access
 
