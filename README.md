@@ -16,30 +16,20 @@ CampusHub brings class timetables, dated exam schedules, academic deadlines, and
 
 ## Website guide
 
-### Sample accounts/Redeemable Keys:
+### Redeemable Keys:
 
-To get started, you could register and use any of this redeemable keys:
+You could register an account and use any of this redeemable keys:
 
-To join a section (Permanent Key):
-- BSCPE4-101: 3234F49D-7B88ABFF-76A35F08
-- BSCPE4-102:  3CC92486-9DFCD0CB-24B3DF43
+**To join a section (Permanent Key):**
+- ***BSCPE4-101:*** 3234F49D-7B88ABFF-76A35F08
+- ***BSCPE4-102:***  3CC92486-9DFCD0CB-24B3DF43
 
-One-time keys:
-- Admin: 5A46B698-DDC5D574-FE6247A8, CB092318-5874584A-558183E3, 217FD4B2-85B56EE4-0F4EF440
-- Professor: 67A883CF-59070381-E3F472C2, 28CC6C36-2C30EF66-8F7EFD7C, 2F3C6E27-8AC90737-F3D55643
-- Class Officer Keys: 47039A17-D3A8D000-140BD1BE, D1889024-57F46B9A-11EB4DD9, 0982ECD7-8D5E1546-2E0DC8C9
+**To get elevated role (Admin/Professor/Class Officer):**
+- ***Admin:*** 5A46B698-DDC5D574-FE6247A8, CB092318-5874584A-558183E3, 217FD4B2-85B56EE4-0F4EF440
+- ***Professor:*** 67A883CF-59070381-E3F472C2, 28CC6C36-2C30EF66-8F7EFD7C, 2F3C6E27-8AC90737-F3D55643
+- ***Class Officer:*** 47039A17-D3A8D000-140BD1BE, D1889024-57F46B9A-11EB4DD9, 0982ECD7-8D5E1546-2E0DC8C9
 
-Alternatively, you can use any of these accounts, each with a different access level:
-
-* **Student Accounts:**
-  * **Student 1:** Name: Student 1 - BSCPE4-101 | Email: `student.demo@stiorca.com` | Password: `Asdqwe11!!`
-  * **Student 2:** Name: Student 2 - BSCPE4-102 | Email: `student.demo1@stiorca.com` | Password: `Asdqwe11!!`
-* **Class Officer Account:**
-  * Name: Officer | Email: `officer.demo@stiorca.com` | Password: `Asdqwe11!!`
-* **Professor Account:**
-  * Name: Professor | Email: `professor.demo@stiorca.com` | Password: `Asdqwe11!!`
-* **Admin Account:**
-  * Name: Admin | Email: `admin.demo@stiorca.com` | Password: `Asdqwe11!!`
+Note that once you have elevated role, you cannot redeem another key.
 
 ### Landing page and account access
 
