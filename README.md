@@ -1,5 +1,7 @@
 # CampusHub
 
+Check out the live website here: [CampusHub](https://red-rinsil.github.io/CampusHub/)
+
 **Centralized Class and Examination Schedules and Announcement Management System**
 
 CampusHub is a centralized website where students can check class schedules, examinations, deadlines, and official announcements from the school. Professors, class officers, and administrators can manage the information their roles are authorized to maintain.
