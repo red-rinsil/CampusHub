@@ -2,9 +2,9 @@
 
 **Centralized Class and Examination Schedules and Announcement Management System**
 
-CampusHub is a centralized website where students can check class schedules, examinations, deadlines, and official announcements. Professors, class officers, and administrators can manage the information their roles are authorized to maintain. Records are shared through Supabase, so updates are not confined to the browser that created them.
+CampusHub is a centralized website where students can check class schedules, examinations, deadlines, and official announcements from the school. Professors, class officers, and administrators can manage the information their roles are authorized to maintain.
 
-CampusHub is intended to complement communication channels such as Facebook and Microsoft Teams—not replace them. It gives students one dependable place to check everything and be updated.
+CampusHub is intended to complement communication channels such as Facebook, Microsoft Teams, and Messenger—not replace them. It gives students one dependable place to check everything and be updated without missing anything.
 
 ## Problem being addressed
 
@@ -12,21 +12,48 @@ Class schedules, examination dates, deadlines, and professor announcements are o
 
 ## Proposed solution
 
-CampusHub brings class timetables, dated exam schedules, academic deadlines, and announcements together in one place. Authorized staff can publish and maintain updates, while students can acknowledge announcements so staff can see whether they have been read.
-
-## Technology stack
-
-- **HTML5** for the landing page, application structure, forms, and dialogs.
-- **Tailwind CSS via CDN** for responsive interface styling, with `styles.css` for custom layout and component styling.
-- **Vanilla JavaScript** for navigation, role-aware rendering, CSV parsing, validation, and user interactions.
-- **Supabase Auth** for account registration, email confirmation, login, logout, and password management.
-- **Supabase PostgreSQL** for shared user profiles, announcements, schedules, academic events, and read acknowledgments.
-- **Supabase Row Level Security (RLS) and database functions** for enforcing role permissions and single-use key redemption.
-- **Supabase Realtime** for updating connected pages when shared records change.
-- **Supabase Edge Function** for administrator-issued email invitations without exposing a service-role key to the browser.
-- **GitHub Pages** for static frontend hosting.
+CampusHub brings class timetables, dated exam schedules, academic deadlines, and announcements together in one place. Authorized staff can publish announcements, maintain updates, manage sections, subjects, and users altogether.
 
 ## Website guide
+
+### Sample accounts/Redeemable Keys:
+
+To get started, you could register and use any of this redeemable keys:
+
+To join a section (Permanent Key):
+- BSCPE4-101: 3234F49D-7B88ABFF-76A35F08
+- BSCPE4-102:  3CC92486-9DFCD0CB-24B3DF43
+
+One-time keys:
+- Admin: 5A46B698-DDC5D574-FE6247A8, CB092318-5874584A-558183E3, 217FD4B2-85B56EE4-0F4EF440
+- Professor: 67A883CF-59070381-E3F472C2, 28CC6C36-2C30EF66-8F7EFD7C, 2F3C6E27-8AC90737-F3D55643
+- Class Officer Keys: 47039A17-D3A8D000-140BD1BE, D1889024-57F46B9A-11EB4DD9, 0982ECD7-8D5E1546-2E0DC8C9
+
+Alternatively, you can use any of this accounts, each with different access-level:
+
+***Student Account/s:***
+Name: Student 1 - BSCPE4-101
+Email: student.demo@stiorca.com
+Password: Asdqwe11!!
+
+Name: Student 2 - BSCPE4-102
+Email: student.demo1@stiorca.com
+Password: Asdqwe11!!
+
+***Class Officer Account/s:***
+Name: Officer
+Email: officer.demo@stiorca.com
+Password: Asdqwe11!!
+
+ ***Professor Account/s:***
+Name: Professor
+Email: professor.demo@stiorca.com
+Password: Asdqwe11!!
+
+ ***Admin Accounts:***
+Name: Admin
+Email: admin.demo@stiorca.com
+Password: Asdqwe11!!
 
 ### Landing page and account access
 
@@ -45,101 +72,91 @@ After signing in, use the navigation in the left sidebar. On smaller screens, th
 
 | Page | What it does |
 | --- | --- |
-| **Dashboard** | Summarizes upcoming academic dates, active announcements, unread updates, and active student count. It also highlights urgent notices and shows today's classes. Authorized professors and administrators can open the bulk schedule tools here. |
-| **Announcements** | Browse and filter announcements by category. Students select **Mark as read** to record an acknowledgment. Professors and class officers can create, edit, and archive their role's announcements; administrators can also restore archived announcements. Authorized staff can see acknowledgment totals. |
-| **Class schedule** | View the weekly timetable, including subjects, instructors, rooms, and times, along with schedule change history. Professors, class officers, and administrators can add, edit, and remove class entries. |
-| **Exam timetable** | View exams and quizzes with their full calendar date, time, subject, and location. Professors and administrators can add, edit, and remove entries. |
-| **Academic calendar** | Browse examinations, quizzes, project deadlines, consultations, and special class sessions chronologically. Professors and administrators can manage calendar entries. |
-| **User management** | Available only to administrators. Invite accounts, change names or roles, deactivate/reactivate accounts, and generate one-time keys for Professor, Class Officer, or Administrator access. |
+| **Dashboard** | Shows your section name below the welcome message, and summarizes upcoming academic dates, active announcements, unread updates, and active student count. It displays one latest announcement card. Students see upcoming dates, announcements, and today's class schedule for every subject they are enrolled in, not only the currently selected subject. The latest announcement remains visible whether or not you acknowledged it. Authorized professors and administrators can open the bulk schedule tools here. |
+| **My subjects** | Professor-only view of every assigned subject, grouped by section. Professors can open a section's timetable or calendar and create announcements for one, multiple, or all of their assigned sections. |
+| **Announcements** | Browse and filter announcements across every section and subject available to your role, independent of the current subject selector. Multi-section copies of the same post are grouped into one feed item, with its target sections/subjects listed. When composing, choose one or more available sections (or all) from the target-sections dropdown. Choosing the **Subject** category reveals a subject subcategory selector; the selected subject must be available in every targeted section. Students can acknowledge all copies targeted to their enrolled subjects at once. Professors and class officers can create, edit, and archive their role's announcements; administrators can also restore archived announcements. Authorized staff can see acknowledgment totals per target. |
+| **Class schedule** | View the weekly timetable, including subjects, assigned professors, rooms, and times, along with schedule change history. Professors, class officers, and administrators can add, edit, and remove class entries. |
+| **Exam timetable** | View examinations with their full calendar date, time, subject, and location. Professors and administrators can add, edit, remove, import, and export exams. |
+| **Academic calendar** | Browse examinations, quizzes, project deadlines, consultations, and special class sessions chronologically. Professors and administrators can filter by a single section or all sections; class officers can view and manage calendar entries only in their own section. |
+| **User management** | Available only to administrators. Edit account names, roles, class placements, and subject assignments; deactivate/reactivate accounts; and generate one-time keys for Professor, Class Officer, or Administrator access. Active student totals include class officers, while the role-grouped account list continues to identify officers separately. |
 | **Account settings** | Change your password by verifying your current password and entering a new one. Supabase Authentication manages the credentials. |
+
+Account settings remains available even before an administrator has created subjects or a student has joined a section.
 
 ### Announcements and acknowledgments
 
-Open **Announcements** to read current posts. Use the category filter to narrow the list. An eligible poster selects **Create announcement**, supplies its title, subject, content, and category, and submits it for other signed-in users. Posters can manage announcements created under their role; administrators have additional archive management permissions.
+Open **Announcements** to read current posts. Use the category filter to narrow the list. Announcement bodies support Markdown bold, italic, headings, bulleted lists, and numbered lists; academic-calendar and exam details support the same formatting. An eligible poster selects **Create announcement**, chooses one or more sections (or all available sections), and selects a subject in each selected section. Professors can target their assigned sections, administrators can target active sections, and class officers can target subjects only in their own section. Categories include General, Exam Notice, Class Cancellation, Deadline, Tertiary, Senior High, and Subject. When **Subject** is selected, the selected subject name becomes the announcement category; subject-category announcements can be filtered by that subject name. Professors can also compose from **My subjects** using the same section and subject targeting. Posters can manage announcements created under their role; administrators have additional archive management permissions.
 
 Students can acknowledge an announcement once using **Mark as read**. The acknowledgment is stored in the shared database and reflected in the staff-facing count. The number of students shown is based on active student accounts.
 
 ### Class schedules and academic dates
 
-Open **Class schedule** for the weekly view. The timetable displays the day and time, subject, instructor, and room; the history section lists recorded schedule changes.
+Open **Class schedule** for the weekly view. Days run across the columns and scheduled times down the rows, including Saturday. The timetable displays each subject, assigned professor, and room; the history section lists recorded schedule changes. Students see schedules for all subjects they are enrolled in within their section. Administrators can choose any active section to view; professors can choose a section where they are assigned to at least one subject. Class officers see all schedules and schedule history in their own section, independent of the active subject; schedule-management actions remain limited to subjects assigned to that officer. Professor names come from the selected subject's active professor assignments, so they are not entered for each schedule row.
 
-Open **Exam timetable** when you need an examination or quiz date. Unlike the weekly class timetable, it displays the complete date for each assessment. Use **Academic calendar** for other dated items, including project deadlines, consultations, and special class sessions.
+Open **Exam timetable** for examinations. Unlike the weekly class timetable, it displays the complete date for each exam. Students see exams for all subjects they are enrolled in within their section. Class officers see exams for their own section. Administrators and professors can filter exams by section; authorized staff can also import and export exams for the selected section. When adding an exam, choose a subject within the section currently being viewed; every entry here is categorized as an examination. Quizzes, project deadlines, consultations, and special class sessions remain in **Academic calendar**, where students see events for all subjects they are enrolled in, class officers are limited to their own section, and administrators/professors can view one section or all sections.
+
+Class schedules and exams use the currently viewed section; choose a subject within that section when creating or editing a record. Academic calendar uses the viewed section for single-section additions, or offers a section and subject selector when viewing all sections. Class officers can publish announcements and create, edit, or delete academic-calendar entries only in their own section.
+
+### Sections and subjects
+
+CampusHub separates a **section** (the student cohort, such as `BSIT 2A`) from its **subjects** (such as `Data Structures`). Students join one section and are initially enrolled in its subjects. An administrator can then adjust each student’s enrolled subjects—for example, for an irregular student. Professors are assigned per subject; exactly one class officer is assigned per section.
+
+An administrator sets this up in **User management**:
+
+1. Create a section. CampusHub displays its reusable join key once. Copy and share it securely with the intended students. **Duplicate section** creates a separate section with new subjects, copied professor assignments, class schedules, and all academic-calendar events; it creates a new join key and does not copy students, class officers, announcements, or acknowledgments. Section active-student totals include the assigned class officer. Administrators can rename or archive/restore a section; archiving preserves its data and existing enrollments. **Delete permanently** removes the section and its subjects, enrollments, memberships, academic records, acknowledgments, and schedule history; it does not delete student or staff accounts.
+2. Add subjects to the section, with an optional course code.
+3. Assign active Professor accounts to individual subjects and one active Class Officer to the section. Professors see their assigned subjects; administrators choose which of the officer's section subjects the officer can manage.
+4. Students register or log in, select **Join section**, and enter the key. The key does not grant a staff role. Each student account can join only one section. Rotating the key invalidates the previous key but does not remove students who already joined.
+5. In **Edit** on a student or class officer account, administrators can assign or change the account's section and choose the specific subjects they take. Class officers keep their separate officer-management subject assignments; enrolling an officer as a learner does not grant or remove management permissions. Moving an account replaces its old section and subject enrollments. In **Edit** on a professor account, administrators can select subjects to assign or unassign. Section and subject lists are alphabetically ordered and collapsed until opened. Subjects can be renamed (including the course code) or archived/restored; archive/restore preserves schedules, exams, announcements, enrollments, and acknowledgment history. **Delete permanently** removes the subject and its assignments, enrollments, academic records, acknowledgments, and schedule history. Staff create or edit records while the intended active subject is selected. This scopes the timetable, calendar, announcements, bulk import/export, and acknowledgment counts. Archiving a section prevents new joins and hides its subjects from members until restored.
+
+A Professor or Class Officer role must be granted by an administrator (or by redeeming a one-time role key) before the account can be assigned to classes. Professors are assigned to subjects; the Class Officer is assigned once at the section level. A role alone does not provide access to another section's information.
 
 ### Bulk schedule and exam import/export
 
-Professors and administrators can select **Import CSV / TXT** from the Dashboard, Class schedule, or Exam timetable. Choose a `.csv` or `.txt` file, review the row-by-row validation preview, then import the valid rows. Invalid rows are reported and skipped; successful records are saved to Supabase and appear in the relevant views for all users.
+Professors and administrators can import class schedules from the Dashboard or Class schedule, and import exams from Exam timetable. Each import dialog requires a destination section; rows are matched by subject name to an accessible offering in that section, independent of the currently selected subject. Rows with missing or ambiguous subject matches are rejected; other invalid rows are reported and skipped. Class Schedule accepts class rows only. Exam timetable accepts exam rows only and imports them as examinations; quiz and other academic-calendar entries are not accepted. Successful records are saved to Supabase and appear in the relevant views for all members.
 
-Select **Download CSV template** in the import dialog for an example. The header format is:
+Select **Download CSV template** in the import dialog for an example.
 
-```text
-Type,Subject,Instructor,Classroom,DayOfWeek,Time,EndTime,Date,Title,Details
-```
-
-- Class rows require `Subject`, `Instructor`, `Classroom`, `DayOfWeek`, `Time`, and `EndTime`.
-- Exam and quiz rows require `Type`, `Subject`, `Classroom`, `Time`, and a real date in `YYYY-MM-DD` format. `Title`, `Instructor`, and `Details` are optional.
-- Time values use 24-hour `HH:MM` format. Supported types are `Class`, `Exam`, `Examination`, and `Quiz`.
-- Quoted CSV values can contain commas. Files are limited to 2 MB and 10,000 valid records.
-
-Choose **Export schedules & exams** to download the current class schedules and exam/quiz records as CSV.
+Choose **Export class schedules** to download all class schedule entries in the selected timetable section as CSV (not just the active subject). Choose **Export exams** from Exam timetable to download only examination entries in its selected section; quizzes and other academic calendar items are not included.
 
 ### Administrator setup and role management
 
-The first administrator must be promoted once from the Supabase SQL Editor. After registering and confirming your account, find its UUID under **Authentication → Users** and run:
+Administrators can:
 
-```sql
-update public.campus_profiles
-set role = 'admin'
-where id = 'REPLACE-WITH-YOUR-AUTH-USER-UUID';
-```
-
-Then sign out and back in. In **User management**, administrators can:
-
-- **Invite user:** send an invitation email using the deployed `admin-create-user` Edge Function. The recipient completes account setup through Supabase.
 - **Change role:** assign Student, Professor, Class Officer, or Administrator.
-- **Edit:** update the user's display name.
+- **Edit:** open the account editor modal to update the user's display name; assign students to a section and select their subjects; or assign/unassign professors from subjects. Accounts are grouped by role and alphabetized.
 - **Deactivate/reactivate:** control whether an account can use the application.
 - **Generate role key:** create a one-time key for an elevated role. Copy and share it securely; it is displayed only once. Key hashes and redemption status are stored in Supabase. The final active administrator cannot be demoted or deactivated.
 
-## Deploying and connecting Supabase
+Professors can:
 
-1. Create a Supabase project.
-2. In the Supabase SQL Editor, run [`supabase/schema.sql`](./supabase/schema.sql). This creates the tables, profile trigger, database functions, RLS policies, and Realtime publication entries.
-3. In **Project Settings → API**, copy the project URL and **anon/public** key into [`supabase-config.js`](./supabase-config.js).
-4. Under **Authentication → URL Configuration**, set the Site URL to your GitHub Pages URL and add that URL to the allowed redirect URLs. Add your local development URL there too if needed.
-5. Under **Authentication → Providers → Email**, enable email/password authentication and choose the email-confirmation behavior appropriate for your demonstration.
-6. Install and configure the [Supabase CLI](https://supabase.com/docs/guides/cli), then deploy the administrator invitation function from the repository root:
+- **Make announcement:** create general updates and section-only announcement to their respective subject.
+- **Create schedules**: update class schedules and exam timetable should there be any changes made.
+- **Update calendar**: add calendar item of their respective subject to the section they handle.
+- **Edit**: make changes to any announcement/calendar entries.
+- **Archive/Delete:** control whether an entry is seen by students by archiving or deleting it completely.
 
-   ```powershell
-   supabase login
-   supabase link --project-ref YOUR_PROJECT_ID
-   supabase functions deploy admin-create-user
-   ```
+Officers can:
 
-   The function uses Supabase server-side environment variables. Do not copy a service-role key into `supabase-config.js`, other frontend code, or this GitHub repository.
-7. Enable GitHub Pages for the repository under **Settings → Pages**. Visit the resulting HTTPS URL to use the connected application. Opening `index.html` using a `file://` URL is not supported for authentication.
-
-The Supabase anon/public key is expected to be visible in the static frontend. RLS and database functions are responsible for protecting records and privileged operations. Never publish the service-role key or disable RLS.
-
-### Repair a missing profile
-
-Every Auth user needs a matching row in `public.campus_profiles`. The signup trigger creates one for new users. If you created an Auth user before running the schema, or see an error saying the CampusHub profile is missing, run this in the Supabase SQL Editor:
-
-```sql
-insert into public.campus_profiles (id, full_name, email)
-select
-  id,
-  coalesce(nullif(trim(raw_user_meta_data ->> 'full_name'), ''), split_part(email, '@', 1)),
-  lower(email)
-from auth.users
-where id = 'REPLACE-WITH-YOUR-AUTH-USER-UUID'
-on conflict (id) do nothing;
-```
-
-Use the UUID shown for your account under **Authentication → Users**, then sign out and sign back in. The app reports this setup issue directly instead of showing an ambiguous database response.
+- **Make announcement:** make updates only to their respective section.
+- **Edit entries**: make changes their own announement/calendar entries.
+- **Archive/Delete:** hide/delete their own entries.
 
 ## AI use disclosure
 
-Generative AI was used as a coding assistant during the design and implementation of this project. AI assistance contributed to drafting and revising the interface, JavaScript functionality, Supabase integration, database schema/policies, and this documentation. The project owner remains responsible for reviewing, configuring, testing, and presenting the work. AI output should not be treated as proof of production readiness or a substitute for a security review.
+Copilot AI was used as a coding assistant during the ninety percent (95%) of design and implementation of this project. AI assistance contributed to drafting and revising the interface, JavaScript functionality, Supabase integration, database schema/policies, and this documentation. I, the project owner, only debugged issues and made minor changes to improve features and the overall usability of the website. AI output should not be treated as proof of production readiness or a substitute for a security review.
+
+## Technology stack
+
+- **HTML5** for the landing page, application structure, forms, and dialogs.
+- **Tailwind CSS via CDN** for responsive interface styling, with `styles.css` for custom layout and component styling.
+- **Vanilla JavaScript** for navigation, role-aware rendering, CSV parsing, validation, and user interactions.
+- **Supabase Auth** for account registration, email confirmation, login, logout, and password management.
+- **Supabase PostgreSQL** for shared user profiles, announcements, schedules, academic events, and read acknowledgments.
+- **Supabase Row Level Security (RLS) and database functions** for enforcing role permissions and single-use key redemption.
+- **Supabase Realtime** for updating connected pages when shared records change.
+- **Supabase Edge Function** for administrator-issued email invitations without exposing a service-role key to the browser.
+- **GitHub Pages** for static frontend hosting.
 
 ## Project files
 
@@ -150,7 +167,6 @@ Generative AI was used as a coding assistant during the design and implementatio
 - [`supabase-config.js`](./supabase-config.js) — public Supabase project URL and anon key configuration.
 - [`supabase-store.js`](./supabase-store.js) — browser-side Supabase Auth, data access, and Realtime integration.
 - [`supabase/schema.sql`](./supabase/schema.sql) — database schema, functions, RLS policies, and Realtime setup.
-- [`supabase/functions/admin-create-user/index.ts`](./supabase/functions/admin-create-user/index.ts) — server-side account invitation function.
 
 ## Limitations
 
