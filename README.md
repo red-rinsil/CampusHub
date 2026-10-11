@@ -22,7 +22,7 @@ CampusHub brings class timetables, dated exam schedules, academic deadlines, and
 
 You could register an account and use any of this redeemable keys:
 
-**To join a section (Permanent Key):**
+**To join a section as a student (Permanent Key):**
 - ***BSCPE4-101:*** 3234F49D-7B88ABFF-76A35F08
 - ***BSCPE4-102:***  3CC92486-9DFCD0CB-24B3DF43
 
