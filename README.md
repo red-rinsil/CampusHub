@@ -78,11 +78,11 @@ Class schedules and exams use the currently viewed section; choose a subject wit
 
 ### Sections and subjects
 
-CampusHub separates a **section** (the student cohort, such as `BSCPE4-101`) from its **subjects** (such as `Data Structures`). Students join one section and are initially enrolled in its subjects. An administrator can then adjust each student’s enrolled subjects—for example, for an irregular student. Professors are assigned per subject; exactly one class officer is assigned per section.
+CampusHub separates a **section** (the student cohort, such as `BSCPE4-101`) from its **subjects** (such as `Embedded Systems`). Students join one section and are initially enrolled in its subjects. An administrator can then adjust each student’s enrolled subjects—for example, for an irregular student. Professors are assigned per subject; exactly one class officer is assigned per section.
 
 An administrator sets this up in **User management**:
 
-1. Create a section. CampusHub displays its reusable join key once. Copy and share it securely with the intended students. **Duplicate section** creates a separate section with new subjects, copied professor assignments, class schedules, and all academic-calendar events; it creates a new join key and does not copy students, class officers, announcements, or acknowledgments. Section active-student totals include the assigned class officer. Administrators can rename or archive/restore a section; archiving preserves its data and existing enrollments. **Delete permanently** removes the section and its subjects, enrollments, memberships, academic records, acknowledgments, and schedule history; it does not delete student or staff accounts.
+1. Create a section. CampusHub displays its reusable join key for a short while before disappearing. Copy and share it securely with the intended students. **Duplicate section** creates a separate section with new subjects, copied professor assignments, class schedules, and all academic-calendar events; it creates a new join key and does not copy students, class officers, announcements, or acknowledgments. Section active-student totals include the assigned class officer. Administrators can rename or archive/restore a section; archiving preserves its data and existing enrollments. **Delete permanently** removes the section and its subjects, enrollments, memberships, academic records, acknowledgments, and schedule history; it does not delete student or staff accounts.
 2. Add subjects to the section, with an optional course code.
 3. Assign active Professor accounts to individual subjects and one active Class Officer to the section. Professors see their assigned subjects; administrators choose which of the officer's section subjects the officer can manage.
 4. Students register or log in, select **Join section**, and enter the key. The key does not grant a staff role. Each student account can join only one section. Rotating the key invalidates the previous key but does not remove students who already joined.
@@ -92,7 +92,7 @@ A Professor or Class Officer role must be granted by an administrator (or by red
 
 ### Bulk schedule and exam import/export
 
-Professors and administrators can import class schedules from the Dashboard or Class schedule, and import exams from Exam timetable. Each import dialog requires a destination section; rows are matched by subject name to an accessible offering in that section, independent of the currently selected subject. Rows with missing or ambiguous subject matches are rejected; other invalid rows are reported and skipped. Class Schedule accepts class rows only. Exam timetable accepts exam rows only and imports them as examinations; quiz and other academic-calendar entries are not accepted. Successful records are saved to Supabase and appear in the relevant views for all members.
+Professors and administrators can import class schedules from the Dashboard or Class schedule, and import exams from Exam timetable. Each import dialog requires a destination section; rows are matched by subject name to an accessible offering in that section, independent of the currently selected subject. Rows with missing or ambiguous subject matches are rejected; other invalid rows are reported and skipped. Class Schedule accepts class rows only. Exam timetable accepts exam rows only and imports them as examinations; quiz and other academic-calendar entries are included. Successful records are saved to Supabase and appear in the relevant views for all members.
 
 Select **Download CSV template** in the import dialog for an example.
 
@@ -120,6 +120,12 @@ Officers can:
 - **Make announcement:** make updates only to their respective section.
 - **Edit entries**: make changes their own announement/calendar entries.
 - **Archive/Delete:** hide/delete their own entries.
+
+Students can:
+
+- **View and acknowledge announcement**: students limited to view-only.
+- **View class schedule and exam timetable**: schedules and timetables of their section only.
+- **View academic calendar**: for both general and section-only events.
 
 ## AI use disclosure
 
